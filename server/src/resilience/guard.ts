@@ -16,8 +16,9 @@ import { withTimeout } from "./timeout.js";
 // 일시적 오류만 재시도한다. 400/401/404처럼 고쳐도 안 되는 오류는 바로 던진다.
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
-function statusOf(e: unknown): number | undefined {
-  // SDK마다 상태 코드가 e.status 또는 e.response.status에 온다
+// SDK마다 상태 코드가 e.status(@google/genai) 또는 e.response.status(axios)에 온다.
+// 에러 분류가 필요한 곳(재시도 판단, 사용자 메시지)은 전부 이 함수를 거쳐 한 곳에서 흡수한다.
+export function statusOf(e: unknown): number | undefined {
   const anyErr = e as { status?: number; response?: { status?: number } };
   return anyErr?.status ?? anyErr?.response?.status;
 }

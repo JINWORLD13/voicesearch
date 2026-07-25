@@ -5,6 +5,7 @@ import {
   injectConfig,
   resetMetrics,
   fireLoad,
+  saveAdminToken,
   type Metrics,
   type RuntimeConfig,
 } from "./api";
@@ -51,11 +52,19 @@ export default function Dashboard() {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [series, setSeries] = useState<Point[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  // 배포 환경에선 관리 기능(주입/리셋)이 ADMIN_TOKEN으로 잠겨 있다.
+  // 401/403이 오면 토큰 입력창을 보여주고, 맞는 토큰을 저장하면 다시 열린다.
+  const [needToken, setNeedToken] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
   const prevRef = useRef<{ total: number; t: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    fetchConfig().then((c) => alive && setConfig(c)).catch(() => {});
+    fetchConfig()
+      .then((c) => alive && setConfig(c))
+      .catch((e: Error & { status?: number }) => {
+        if (alive && (e.status === 401 || e.status === 403)) setNeedToken(true);
+      });
 
     const tick = async () => {
       try {
@@ -153,6 +162,36 @@ export default function Dashboard() {
           <LineChart points={series} pick={(p) => p.p95} color="#dc2626" unit="ms" />
         </div>
       </div>
+
+      {/* 관리 토큰: 서버가 주입/리셋을 잠갔을 때만 보인다 */}
+      {needToken && (
+        <form
+          className="control-group token-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            saveAdminToken(tokenInput.trim());
+            try {
+              setConfig(await fetchConfig());
+              setNeedToken(false);
+            } catch {
+              /* 토큰이 틀리면 입력창을 유지한다 */
+            }
+          }}
+        >
+          <h3>관리 토큰</h3>
+          <p className="dash-note">장애 주입과 메트릭 초기화는 서버의 ADMIN_TOKEN으로 보호돼 있어요.</p>
+          <div className="btn-row">
+            <input
+              className="token-input"
+              type="password"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder="ADMIN_TOKEN 입력"
+            />
+            <button className="ctl" type="submit">확인</button>
+          </div>
+        </form>
+      )}
 
       {/* 주입 컨트롤 */}
       <div className="controls">

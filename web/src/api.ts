@@ -73,22 +73,39 @@ export async function fetchMetrics(): Promise<Metrics> {
   return res.json();
 }
 
+// 장애 주입/리셋은 서버에서 ADMIN_TOKEN으로 보호된다(배포 환경).
+// 대시보드에서 입력한 토큰을 저장해두고 관리 요청마다 헤더로 보낸다.
+const ADMIN_TOKEN_KEY = "vs.adminToken";
+
+export function saveAdminToken(token: string): void {
+  localStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+function adminHeaders(): Record<string, string> {
+  const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+  return token ? { "x-admin-token": token } : {};
+}
+
 export async function fetchConfig(): Promise<RuntimeConfig> {
-  const res = await fetch("/api/admin/config");
-  if (!res.ok) throw new Error("설정을 불러오지 못했습니다.");
+  const res = await fetch("/api/admin/config", { headers: adminHeaders() });
+  if (!res.ok) {
+    const err = new Error("설정을 불러오지 못했습니다.") as Error & { status?: number };
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
 export async function injectConfig(patch: Partial<RuntimeConfig>): Promise<void> {
   await fetch("/api/admin/config", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...adminHeaders() },
     body: JSON.stringify(patch),
   });
 }
 
 export async function resetMetrics(): Promise<void> {
-  await fetch("/api/metrics/reset", { method: "POST" }).catch(() => {});
+  await fetch("/api/metrics/reset", { method: "POST", headers: adminHeaders() }).catch(() => {});
 }
 
 // 부하 발사: 브라우저에서 동시에 여러 검색을 쏜다.

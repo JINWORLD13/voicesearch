@@ -36,7 +36,7 @@ function clientKey(req: express.Request): string {
   return fwd || req.socket.remoteAddress || "unknown";
 }
 
-app.use("/api/search", (req, res, next) => {
+function rateLimit(req: express.Request, res: express.Response, next: express.NextFunction) {
   metrics.inc("ingress.total"); // rate limit 통과 전 총 유입
   if (runtimeConfig.rateLimitEnabled && !rateLimiter.allow(clientKey(req))) {
     // 503(서버 에러)이 아니라 429(요청 과다)로 준다. 서버는 멀쩡하고 "네가 너무 많이
@@ -45,10 +45,28 @@ app.use("/api/search", (req, res, next) => {
     return res.status(429).json({ error: "요청이 너무 잦습니다. 잠시 후 다시 시도해주세요." });
   }
   next();
-});
+}
 
-app.use("/api/search", searchRouter);
-app.use("/api/voice", voiceRouter);
+// 검색과 음성 모두 같은 IP별 버킷을 쓴다. 음성을 빼면 반복 호출만으로
+// ElevenLabs 월 무료 한도를 고갈시킬 수 있다(세마포어는 동시성만 막지 총량은 못 막는다).
+app.use("/api/search", rateLimit, searchRouter);
+app.use("/api/voice", rateLimit, voiceRouter);
+
+// 장애 주입/메트릭 리셋은 데모용 관리 기능이다. 공개된 채로 배포되면 누구나 rate
+// limiter를 끄거나 degradation=reject로 검색 전체를 중단시킬 수 있다(CORS는 브라우저만
+// 막을 뿐 curl은 못 막는다). ADMIN_TOKEN이 설정돼 있으면 헤더로 검사하고, 토큰 없이
+// 프로덕션(NODE_ENV=production)에 올라간 경우엔 아예 닫는다. 로컬 개발은 개방.
+function adminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const token = process.env.ADMIN_TOKEN;
+  if (token) {
+    if (req.headers["x-admin-token"] === token) return next();
+    return res.status(401).json({ error: "관리 토큰이 올바르지 않습니다." });
+  }
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "프로덕션에서는 ADMIN_TOKEN 없이 관리 기능을 쓸 수 없습니다." });
+  }
+  next();
+}
 
 // 관측 엔드포인트: 지연 백분위, 결과별 카운트, 캐시 적중률, 각 외부 API의
 // 서킷/동시성 상태, rate limit 현황을 한눈에 준다. 대시보드/부하 스크립트가 여기서 읽는다.
@@ -67,15 +85,15 @@ app.get("/api/metrics", (_req, res) => {
 });
 
 // 부하 테스트 회차 사이에 카운터를 깨끗이 비운다
-app.post("/api/metrics/reset", (_req, res) => {
+app.post("/api/metrics/reset", adminOnly, (_req, res) => {
   metrics.reset();
   res.json({ ok: true });
 });
 
 // 장애/부하 주입: 대시보드가 실패율·지연·rate limit·저하 레벨을 런타임에 바꾼다.
 // 데모에서 "외부 AI 죽이기", "rate limit 강화" 버튼이 이걸 호출한다.
-app.get("/api/admin/config", (_req, res) => res.json(runtimeConfig));
-app.post("/api/admin/config", (req, res) => {
+app.get("/api/admin/config", adminOnly, (_req, res) => res.json(runtimeConfig));
+app.post("/api/admin/config", adminOnly, (req, res) => {
   patchConfig(req.body || {});
   res.json({ ok: true, config: runtimeConfig });
 });

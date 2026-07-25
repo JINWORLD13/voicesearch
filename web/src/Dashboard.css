@@ -158,6 +158,20 @@
   width: 140px;
 }
 
+.token-form {
+  margin-bottom: 16px;
+}
+
+.token-input {
+  border: 1px solid #333844;
+  background: #1a1d24;
+  color: #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  width: 220px;
+}
+
 /* 탭 */
 .tabs {
   display: flex;

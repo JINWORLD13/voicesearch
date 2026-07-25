@@ -39,5 +39,10 @@ export function patchConfig(patch: Record<string, unknown>): void {
   if ("rateLimitEnabled" in patch) runtimeConfig.rateLimitEnabled = Boolean(patch.rateLimitEnabled);
   if ("rateLimitCapacity" in patch) runtimeConfig.rateLimitCapacity = clamp(Number(patch.rateLimitCapacity), 1, 10000);
   if ("rateLimitRefillPerSec" in patch) runtimeConfig.rateLimitRefillPerSec = clamp(Number(patch.rateLimitRefillPerSec), 0.1, 10000);
-  if ("degradation" in patch) runtimeConfig.degradation = patch.degradation as DegradationLevel;
+  if ("degradation" in patch) {
+    const levels: DegradationLevel[] = ["none", "no-tts", "cache-only", "reject"];
+    if (levels.includes(patch.degradation as DegradationLevel)) {
+      runtimeConfig.degradation = patch.degradation as DegradationLevel;
+    }
+  }
 }

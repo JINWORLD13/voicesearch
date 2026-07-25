@@ -2,7 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { searchWeb } from "../exa.js";
 import { streamAnswer, streamGroundedAnswer } from "../llm.js";
-import { LruTtlCache, CircuitOpenError, TimeoutError } from "../resilience/index.js";
+import { LruTtlCache, CircuitOpenError, TimeoutError, statusOf } from "../resilience/index.js";
 import { metrics } from "../metrics.js";
 import { requestLogger } from "../logger.js";
 import { runtimeConfig } from "../runtimeConfig.js";
@@ -35,8 +35,9 @@ function cacheKey(q: string): string {
   return q.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-// 캐시된 답변을 되재생할 때 한 덩어리로 보내지 않고 어절 몇 개씩 쪼개 보낸다.
-// 스트리밍 UX(글자가 차오르는 느낌)를 캐시 히트에서도 유지하기 위해서다.
+// 캐시된 답변도 실제 생성과 같은 이벤트 순서(sources → delta 여러 개 → done)로 보낸다.
+// 지연 없이 연달아 쓰므로 시각적으로는 거의 한 번에 도착하지만, 프론트가 캐시 히트를
+// 특별 취급하지 않고 같은 렌더 경로를 타게 하는 게 목적이다.
 function* replayChunks(answer: string): Generator<string> {
   const words = answer.split(" ");
   for (let i = 0; i < words.length; i += 6) {
@@ -198,7 +199,7 @@ function classifyError(e: unknown): { message: string; kind: string } {
   if (e instanceof TimeoutError) {
     return { message: "응답이 지연되고 있어요. 잠시 후 다시 시도해주세요.", kind: "timeout" };
   }
-  const status = (e as { response?: { status?: number } })?.response?.status;
+  const status = statusOf(e);
   if (status === 401 || status === 403) {
     return { message: "API 키가 올바르지 않습니다. server/.env를 확인해주세요.", kind: "auth" };
   }
