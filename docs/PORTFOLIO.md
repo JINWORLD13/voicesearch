@@ -12,16 +12,8 @@
 
 라이브 링크: (배포 예정 — Render + Netlify)
 
-스크린샷:
-
-![초기 화면](screenshots/01-home.png)
-검색 전 초기 화면. 예시 질문 칩을 누르거나 마이크로 말하면 바로 검색된다.
-
-![검색 결과](screenshots/02-result.png)
-"2026년 최저시급 얼마야?" 질문에 대한 답변. 출처를 먼저 보여주고 답변이
-스트리밍으로 차오른다. 우측 하단에 응답 시간(4.1초)이 표시된다.
-
-데모 영상: (녹화 예정)
+스크린샷과 데모 영상은 배포와 함께 `docs/screenshots/`에 추가 예정.
+로컬 실행 방법은 [README](../README.md#실행-방법)에 있다.
 
 ---
 
@@ -162,6 +154,32 @@ for (const part of parts) {
 
 ---
 
+## 과부하·장애에 견디는 4계층 방어
+
+느리고(5~7초) 가끔 실패하는 외부 AI를 감싸는 서버라, "많이 처리하기"보다 "외부가
+흔들려도 버티기"를 핵심 문제로 봤다.
+
+```
+요청 → [1] Rate Limiter (IP별 Token Bucket, 직접 구현) ─초과─▶ 429 안전 거부
+     → [2] Circuit Breaker (연속 실패 시 회로 열고 빠른 실패)
+     → [3] Bulkhead (외부 API별 세마포어로 동시성 격리)
+     → [4] Graceful Degradation (과부하 시 TTS부터 순서대로 포기)
+     → 정상 처리 (+ LRU+TTL 캐시로 반복 질문 즉시 응답)
+```
+
+부하 테스트로 실측한 대표 수치:
+
+- 답변 캐시: 반복 질문 부하에서 p50 3905ms → 1ms, 처리율 2.7배
+- 서킷 브레이커: 실패율 50% 장애에서 벽시계 절반(16.5초 → 8.9초), p50 6배 단축
+- Rate Limiter: 한 IP 폭주는 429로 차단, 같은 순간 다른 IP는 전부 통과
+
+대시보드에서 "외부 AI 죽이기" 같은 장애를 주입하면 서킷이 열리고 그래프가 튀는 걸
+실시간으로 볼 수 있다. 각 계층의 대안 비교(라이브러리/인프라 레벨)와 측정 방법론은
+[RESILIENCE.md](RESILIENCE.md)에 정리했다. 장애 주입 엔드포인트는 배포 시
+ADMIN_TOKEN으로 보호한다.
+
+---
+
 ## 지표
 
 응답 속도 (실측, Gemini 내장 검색 경로, 5개 질문):
@@ -237,25 +255,31 @@ export function streamAnswer(question, sources) {
 }
 ```
 
-### 재시도: 나을 병과 안 나을 병 구분
+### 외부 호출 보호막: 네 겹을 한 번의 call()로
 
-server/src/llm.ts — 일시적 오류만 지수 백오프로 재시도.
+server/src/resilience/guard.ts — 모든 외부 API 호출(gemini, exa, elevenlabs)을
+서킷 브레이커 → 재시도 → 세마포어 → 타임아웃 순서로 감싼다. 재시도는 "나을 병"
+(429/5xx 같은 일시 오류)만 지수 백오프로 다시 시도하고, 401(키 오류) 같은 "안 나을
+병"은 바로 던져 사용자에게 원인을 알린다.
 
 ```ts
-const RETRYABLE = new Set([429, 500, 503, 504]);  // 요청 과다, 서버 장애만
+const RETRYABLE = new Set([429, 500, 502, 503, 504]); // 일시 오류만 재시도
 
-async function withRetry(fn, label) {
-  const delays = [500, 1000, 2000];
-  for (let attempt = 0; ; attempt++) {
-    try { return await fn(); }
-    catch (e) {
-      // 401(키 오류) 같은 건 재시도해도 소용없으니 바로 던진다
-      if (!RETRYABLE.has(e?.status) || attempt >= delays.length) throw e;
-      await new Promise((r) => setTimeout(r, delays[attempt]));
-    }
-  }
+call<T>(fn: () => Promise<T>): Promise<T> {
+  return this.breaker.run(() =>            // 1) 서킷: 계속 죽는 API는 호출 없이 즉시 실패
+    withRetry(                             // 2) 재시도: 일시 오류만 0.5s→1s→2s 백오프
+      () => this.semaphore.run(            // 3) 세마포어: API별 동시 실행 상한(Bulkhead)
+        () => withTimeout(fn(), this.opts.timeoutMs, this.opts.label) // 4) 타임아웃
+      ),
+      this.opts.label,
+      this.retryDelays
+    )
+  );
 }
 ```
+
+겹의 순서에 이유가 있다. 백오프로 기다리는 동안에는 세마포어 슬롯을 잡고 있지 않고
+(재시도가 세마포어 바깥), 죽은 API는 서킷이 가장 바깥에서 끊어 재시도조차 하지 않는다.
 
 ### 음성 폴백
 
@@ -282,6 +306,9 @@ if (blob) {
 - LLM: Gemini `gemini-3.6-flash`(기본) 또는 OpenAI, 무료 티어로 동작
 - 음성 입력: Web Speech API (브라우저 내장)
 - 음성 출력: ElevenLabs TTS + speechSynthesis 폴백
+- 회복탄력성: Rate Limiter / Circuit Breaker / Bulkhead / 캐시 직접 구현 (유닛 테스트 21개, node:test)
+- 로깅·관측: pino 구조화 로그 + 인메모리 메트릭(p50/p95/p99) + 실시간 대시보드
+- 부하 테스트: 자체 SSE 스크립트 + k6
 
 ## 한계와 다음 계획
 

@@ -136,7 +136,7 @@ npx tsx loadtest/run.mts 50 200
 ```
 server/
   src/
-    server.ts        Express 앱, Rate Limiter 미들웨어, 메트릭/주입 엔드포인트
+    server.ts        Express 앱, Rate Limiter(검색·음성), 메트릭/주입 엔드포인트(ADMIN_TOKEN 보호)
     exa.ts           Exa 웹 검색 (exaGuard로 감쌈)
     llm.ts           Gemini/OpenAI 스트리밍 생성, 내장 검색(grounding) 경로
     guards.ts        외부 API별 보호막(서킷+재시도+세마포어+타임아웃) 설정
