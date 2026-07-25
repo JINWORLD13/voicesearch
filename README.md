@@ -1,3 +1,5 @@
+**한국어** | [日本語](README.ja.md)
+
 # VoiceSearch
 
 마이크에 대고 물어보면 웹을 검색해서 근거와 함께 답하고, 그 답을 음성으로
@@ -163,6 +165,7 @@ loadtest/
 docs/
   RESILIENCE.md      4계층 방어의 PAR (문제-대안비교-구현-실측)
   PORTFOLIO.md       아키텍처와 기술 선택 개요
+  *.ja.md            위 문서의 일본어판 (README.ja.md 포함)
 ```
 
 ## 한계와 다음에 해볼 것
