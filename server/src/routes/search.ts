@@ -65,7 +65,16 @@ router.post("/", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
 
-  const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  // 클라이언트가 응답 도중 연결을 끊으면(탭 닫기 등) 알림을 받는다.
+  // 이후로는 죽은 소켓에 쓰지 않고, 스트림 소비도 멈춰 자원을 회수한다.
+  let clientGone = false;
+  res.on("close", () => {
+    clientGone = true;
+  });
+
+  const send = (data: unknown) => {
+    if (!clientGone) res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
 
   // 1) 캐시 조회. 히트면 외부 호출 없이 즉시 응답한다(5~7초 → 수 ms).
   // DISABLE_CACHE=1은 부하 실험용 토글(before/after 비교). 프로덕션엔 설정하지 않는다.
@@ -115,6 +124,7 @@ router.post("/", async (req, res) => {
       metrics.inc("path.grounded");
 
       for await (const event of streamGroundedAnswer(question)) {
+        if (clientGone) break; // 사용자가 떠났으면 생성을 계속 소비하지 않는다
         if (event.kind === "text") {
           answer += event.text;
           send({ type: "delta", text: event.text });
@@ -149,6 +159,7 @@ router.post("/", async (req, res) => {
       send({ type: "sources", sources: sourcesPayload });
 
       for await (const text of streamAnswer(question, results)) {
+        if (clientGone) break; // 사용자가 떠났으면 생성을 계속 소비하지 않는다
         answer += text;
         send({ type: "delta", text });
       }
@@ -159,8 +170,11 @@ router.post("/", async (req, res) => {
     metrics.recordLatency(elapsed);
     metrics.inc("requests.success");
 
-    // 3) 성공한 답변만 캐시에 넣는다(빈 답변은 넣지 않는다)
-    if (cacheOn && answer.trim()) answerCache.set(key, { answer, sources: sourcesPayload, path });
+    // 3) 성공한 답변만 캐시에 넣는다. 빈 답변이나, 연결이 끊겨 중간에 멈춘
+    //    부분 답변은 넣지 않는다(잘린 답이 캐시에 남아 다음 사용자에게 나가면 안 됨).
+    if (cacheOn && answer.trim() && !clientGone) {
+      answerCache.set(key, { answer, sources: sourcesPayload, path });
+    }
     log.info({ event: "search.done", path, latencyMs: elapsed, answerLen: answer.length });
     res.end();
   } catch (e) {
