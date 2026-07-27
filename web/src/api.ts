@@ -55,6 +55,7 @@ export type Metrics = {
   guards: Record<string, { circuit: { state: string; failures: number; shortCircuited: number }; inUse: number; queued: number }>;
   rateLimiter: { trackedKeys: number; config: { enabled: boolean; capacity: number; refillPerSec: number } };
   degradation: string;
+  mockEnabled: boolean;
 };
 
 export type RuntimeConfig = {

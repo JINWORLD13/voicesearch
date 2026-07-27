@@ -82,6 +82,10 @@ app.get("/api/metrics", (_req, res) => {
       refillPerSec: runtimeConfig.rateLimitRefillPerSec,
     } },
     degradation: runtimeConfig.degradation,
+    // 대시보드가 "부하 주입" 버튼을 켤지 판단하는 값. MOCK_LLM이 없는 실배포에서
+    // 부하 주입은 브라우저가 실제 /api/search로 진짜 요청을 쏘는 것이라, 진짜 Gemini
+    // 무료 할당량을 태운다 — 이미 한 번 겪었다. mock일 때만 버튼을 켜지게 한다.
+    mockEnabled: Boolean(process.env.MOCK_LLM),
   });
 });
 

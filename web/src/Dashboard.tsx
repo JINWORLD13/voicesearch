@@ -282,13 +282,22 @@ export default function Dashboard() {
 
         <div className="control-group">
           <h3>부하 주입</h3>
+          {metrics?.mockEnabled ? (
+            <div className="btn-row">
+              <button className="ctl" disabled={!!busy} onClick={() => withBusy("burst", () => fireLoad(30, true))}>
+                {busy === "burst" ? "쏘는 중..." : "한 사용자 폭주 (30연발 → 429 보기)"}
+              </button>
+              <button className="ctl" disabled={!!busy} onClick={() => withBusy("spike", () => fireLoad(80, false))}>
+                {busy === "spike" ? "쏘는 중..." : "대량 트래픽 (80동시, 여러 사용자)"}
+              </button>
+            </div>
+          ) : (
+            <p className="dash-note">
+              이 배포는 실제 Gemini API를 쓰고 있어서 부하 주입 버튼을 껐어요(눌렀다간 진짜 요청이 실제
+              무료 할당량을 그대로 태워요). MOCK_LLM 모드로 띄운 서버에서만 켜집니다.
+            </p>
+          )}
           <div className="btn-row">
-            <button className="ctl" disabled={!!busy} onClick={() => withBusy("burst", () => fireLoad(30, true))}>
-              {busy === "burst" ? "쏘는 중..." : "한 사용자 폭주 (30연발 → 429 보기)"}
-            </button>
-            <button className="ctl" disabled={!!busy} onClick={() => withBusy("spike", () => fireLoad(80, false))}>
-              {busy === "spike" ? "쏘는 중..." : "대량 트래픽 (80동시, 여러 사용자)"}
-            </button>
             <button
               className="ctl"
               disabled={busy === "reset"}
