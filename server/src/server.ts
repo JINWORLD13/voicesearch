@@ -6,10 +6,11 @@ import cors from "cors";
 import searchRouter, { cacheStats } from "./routes/search.js";
 import voiceRouter from "./routes/voice.js";
 import { metrics } from "./metrics.js";
-import { guardMetrics } from "./guards.js";
+import { guardMetrics, resetGuards } from "./guards.js";
 import { RateLimiter } from "./resilience/rateLimiter.js";
 import { runtimeConfig, patchConfig } from "./runtimeConfig.js";
 import { logger } from "./logger.js";
+import { eventLog } from "./eventLog.js";
 
 const app = express();
 
@@ -84,9 +85,15 @@ app.get("/api/metrics", (_req, res) => {
   });
 });
 
-// 부하 테스트 회차 사이에 카운터를 깨끗이 비운다
+// 전체 초기화: 부하 테스트 회차 사이에 카운터를 비우는 용도로 시작했지만, 방문자가
+// 부하 주입을 걸어놓고 안 돌아오는 상황(서킷 open, 세마포어 큐 적체, IP별 rate limit
+// 소진)도 Render 재시작 없이 여기서 바로 풀 수 있도록 범위를 넓혔다.
 app.post("/api/metrics/reset", adminOnly, (_req, res) => {
   metrics.reset();
+  resetGuards();
+  rateLimiter.reset();
+  runtimeConfig.degradation = "none";
+  eventLog.push("admin", "전체 초기화 실행(메트릭·서킷·대기열·rate limiter)");
   res.json({ ok: true });
 });
 
@@ -95,8 +102,13 @@ app.post("/api/metrics/reset", adminOnly, (_req, res) => {
 app.get("/api/admin/config", adminOnly, (_req, res) => res.json(runtimeConfig));
 app.post("/api/admin/config", adminOnly, (req, res) => {
   patchConfig(req.body || {});
+  eventLog.push("admin", `설정 변경: ${JSON.stringify(req.body || {})}`);
   res.json({ ok: true, config: runtimeConfig });
 });
+
+// 이벤트 로그: 서킷 열림/닫힘, 관리자 조작 같은 굵직한 사건을 대시보드가 보여준다.
+// 메트릭처럼 관측용이라 관리 토큰 없이도 읽을 수 있게 열어둔다.
+app.get("/api/events", (_req, res) => res.json(eventLog.list()));
 
 // 프론트(web/dist)를 같은 서버가 서빙한다. Netlify 같은 별도 정적 호스팅 없이
 // 배포 하나로 끝내기 위함 — 도메인이 하나라 CORS/리다이렉트 설정도 필요 없어진다.

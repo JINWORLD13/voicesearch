@@ -9,6 +9,8 @@
 //  open      차단. 즉시 실패(빠른 실패). resetMs가 지나면 half-open으로.
 //  half-open 시험. 딱 한 번 통과시켜 본다. 성공하면 closed, 실패하면 다시 open.
 
+import { eventLog } from "../eventLog.js";
+
 type State = "closed" | "open" | "half-open";
 
 export class CircuitOpenError extends Error {
@@ -33,6 +35,7 @@ export class CircuitBreaker {
       if (Date.now() - this.openedAt >= this.opts.resetMs) {
         // 식을 만큼 식었으니 시험 삼아 한 번 열어본다
         this.state = "half-open";
+        eventLog.push("circuit", `${this.opts.label} 서킷 half-open — 시험 호출 시작`);
       } else {
         // 아직 식지 않았다. 실제 호출 없이 즉시 실패시킨다(빠른 실패)
         this.shortCircuited++;
@@ -52,17 +55,31 @@ export class CircuitBreaker {
 
   private onSuccess(): void {
     // 시험 호출이 성공했거나 정상 호출이 성공했다. 실패 기록을 지우고 정상으로.
+    const wasOpenish = this.state !== "closed";
     this.failures = 0;
     this.state = "closed";
+    if (wasOpenish) eventLog.push("circuit", `${this.opts.label} 서킷 closed — 복구됨`);
   }
 
   private onFailure(): void {
     this.failures++;
     // half-open에서 실패했거나(아직 안 나았다), 실패가 임계치를 넘으면 회로를 연다
     if (this.state === "half-open" || this.failures >= this.opts.failureThreshold) {
+      const wasOpen = this.state === "open";
       this.state = "open";
       this.openedAt = Date.now();
+      if (!wasOpen) eventLog.push("circuit", `${this.opts.label} 서킷 open — 실패 ${this.failures}회 누적`);
     }
+  }
+
+  // 관리자가 대시보드에서 강제로 정상 상태로 되돌릴 때 쓴다(장애 주입 후 실험 종료 등)
+  reset(): void {
+    const wasOpenish = this.state !== "closed";
+    this.state = "closed";
+    this.failures = 0;
+    this.openedAt = 0;
+    this.shortCircuited = 0;
+    if (wasOpenish) eventLog.push("circuit", `${this.opts.label} 서킷 강제 초기화`);
   }
 
   get snapshot() {

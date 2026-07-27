@@ -2,6 +2,8 @@
 
 # VoiceSearch
 
+**ライブデモ**: https://voicesearch-cwh9.onrender.com (Renderの無料ティアなので初回リクエストは遅いことがある)
+
 マイクに向かって質問すると、ウェブを検索して根拠付きで回答し、その回答を音声で
 読み上げる検索サービス。React、Express(TypeScript)、Gemini APIで作った。
 検索はExa APIまたはGemini内蔵のGoogle検索、音声合成はElevenLabsまたは
@@ -180,4 +182,4 @@ docs/
 - 内蔵検索経路は出典リンクがGoogleのリダイレクトURLで届き、検索結果の件数や
   本文抜粋を制御できず、回答内の [1] インライン番号も付けられない。
   細かい制御が必要ならExa経路を使えばよい。
-- デプロイはRender(サーバー) + Netlify(フロント)の無料ティア構成で公開予定。
+- デプロイはRenderの無料ティアで公開済み(Expressがリアクトのビルド結果も一緒に配信)。

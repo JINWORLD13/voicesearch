@@ -70,6 +70,13 @@ export class Guard {
     );
   }
 
+  // 관리자가 대시보드에서 강제 초기화할 때 쓴다. 대기열부터 비워야(먼저 실행)
+  // 그로 인해 세는 실패가 뒤이은 서킷 초기화로 덮여, 최종 상태가 항상 깨끗한 closed다.
+  reset(): void {
+    this.semaphore.reset();
+    this.breaker.reset();
+  }
+
   // 관측용: 이 의존성의 현재 상태를 메트릭으로 노출
   get metrics() {
     return {

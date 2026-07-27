@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   fetchMetrics,
   fetchConfig,
+  fetchEvents,
   injectConfig,
-  resetMetrics,
+  resetAll,
   fireLoad,
   saveAdminToken,
   type Metrics,
   type RuntimeConfig,
+  type LogEvent,
 } from "./api";
 import "./Dashboard.css";
 
@@ -50,6 +52,7 @@ function circuitColor(state: string): string {
 export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
+  const [events, setEvents] = useState<LogEvent[]>([]);
   const [series, setSeries] = useState<Point[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   // 배포 환경에선 관리 기능(주입/리셋)이 ADMIN_TOKEN으로 잠겨 있다.
@@ -86,9 +89,23 @@ export default function Dashboard() {
     };
     const id = setInterval(tick, 1000);
     tick();
+
+    // 이벤트 로그는 자주 안 바뀌니 메트릭보다 느슨하게 돈다
+    const tickEvents = async () => {
+      try {
+        const e = await fetchEvents();
+        if (alive) setEvents(e);
+      } catch {
+        /* 서버 재시작 중 등은 조용히 넘긴다 */
+      }
+    };
+    const eventsId = setInterval(tickEvents, 3000);
+    tickEvents();
+
     return () => {
       alive = false;
       clearInterval(id);
+      clearInterval(eventsId);
     };
   }, []);
 
@@ -254,11 +271,35 @@ export default function Dashboard() {
             <button className="ctl" disabled={!!busy} onClick={() => withBusy("spike", () => fireLoad(80, false))}>
               {busy === "spike" ? "쏘는 중..." : "대량 트래픽 (80동시, 여러 사용자)"}
             </button>
-            <button className="ctl" onClick={() => { resetMetrics(); setSeries([]); prevRef.current = null; }}>
-              메트릭 초기화
+            <button
+              className="ctl"
+              onClick={() => {
+                resetAll();
+                setSeries([]);
+                prevRef.current = null;
+              }}
+            >
+              전체 초기화 (메트릭·서킷·대기열)
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 이벤트 로그: 서킷 열림/닫힘, 관리자 조작 같은 굵직한 사건의 타임라인 */}
+      <div className="control-group event-log">
+        <h3>이벤트 로그</h3>
+        {events.length === 0 ? (
+          <p className="dash-note">아직 기록된 사건이 없어요.</p>
+        ) : (
+          <ul className="event-list">
+            {events.map((e) => (
+              <li key={e.ts + e.message} className={`event-item event-${e.type}`}>
+                <span className="event-time">{new Date(e.ts).toLocaleTimeString()}</span>
+                <span className="event-msg">{e.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

@@ -162,6 +162,54 @@
   margin-bottom: 16px;
 }
 
+/* 이벤트 로그 */
+.event-log {
+  margin-top: 20px;
+  border-top: 1px solid #262a33;
+  padding-top: 16px;
+}
+
+.event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.event-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #1a1d24;
+  border: 1px solid #262a33;
+  border-left: 3px solid #4b5563;
+}
+
+.event-item.event-circuit {
+  border-left-color: #d97706;
+}
+
+.event-item.event-admin {
+  border-left-color: #2563eb;
+}
+
+.event-time {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.event-msg {
+  color: #d1d5db;
+}
+
 .token-input {
   border: 1px solid #333844;
   background: #1a1d24;

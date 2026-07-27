@@ -12,7 +12,7 @@
 
 ## 데모
 
-라이브 링크: (배포 예정 — Render + Netlify)
+라이브 링크: https://voicesearch-cwh9.onrender.com (Render 무료 티어라 첫 요청은 느릴 수 있음)
 
 스크린샷과 데모 영상은 배포와 함께 `docs/screenshots/`에 추가 예정.
 로컬 실행 방법은 [README](../README.md#실행-방법)에 있음.
@@ -319,4 +319,4 @@ if (blob) {
 - 단발 질문만 지원(멀티턴 없음).
 - 음성 재생이 답변 생성 완료 후 시작됨. ElevenLabs 스트리밍 API로 문장 단위로
   미리 만들면 첫 소리까지의 대기를 줄일 수 있음.
-- 배포는 Render(서버) + Netlify(프론트) 무료 티어로 예정임.
+- 배포는 Render 무료 티어로 완료함(서버가 리액트 빌드 결과물을 같이 서빙).

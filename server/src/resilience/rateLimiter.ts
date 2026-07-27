@@ -85,4 +85,9 @@ export class RateLimiter {
   get trackedKeys(): number {
     return this.buckets.size;
   }
+
+  // 관리자 강제 초기화용: 모든 IP의 버킷을 지워 다시 가득 찬 상태에서 시작하게 한다.
+  reset(): void {
+    this.buckets.clear();
+  }
 }

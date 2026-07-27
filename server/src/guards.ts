@@ -62,3 +62,12 @@ export function guardMetrics() {
     elevenlabs: elevenLabsGuard.metrics,
   };
 }
+
+// 대시보드의 "전체 초기화"가 부른다. 부하 주입 등으로 큐/서킷이 막혔을 때
+// Render 재시작 없이 복구할 수 있게 한다.
+export function resetGuards(): void {
+  geminiGuard.reset();
+  openaiGuard.reset();
+  exaGuard.reset();
+  elevenLabsGuard.reset();
+}

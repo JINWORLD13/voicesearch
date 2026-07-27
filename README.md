@@ -2,6 +2,8 @@
 
 # VoiceSearch
 
+**라이브 데모**: https://voicesearch-cwh9.onrender.com (Render 무료 티어라 첫 요청은 느릴 수 있음)
+
 마이크에 대고 물어보면 웹을 검색해서 근거와 함께 답하고, 그 답을 음성으로
 읽어주는 검색 서비스임. React, Express(TypeScript), Gemini API로 만들었고,
 검색은 Exa API 또는 Gemini 내장 구글 검색, 음성 합성은 ElevenLabs 또는
@@ -177,4 +179,4 @@ docs/
 - 내장 검색 경로는 출처 링크가 구글 리다이렉트 주소로 오고, 검색 결과의
   개수나 본문 발췌를 제어할 수 없고, 답변 속 [1] 인라인 번호도 못 붙임.
   이런 세밀한 제어가 필요하면 Exa 경로를 쓰면 됨.
-- 배포는 Render(서버) + Netlify(프론트) 무료 티어 조합으로 올릴 예정임.
+- 배포는 Render 무료 티어로 완료함(Express가 리액트 빌드 결과물을 같이 서빙).

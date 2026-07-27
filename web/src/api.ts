@@ -73,6 +73,14 @@ export async function fetchMetrics(): Promise<Metrics> {
   return res.json();
 }
 
+export type LogEvent = { ts: number; type: string; message: string };
+
+export async function fetchEvents(): Promise<LogEvent[]> {
+  const res = await fetch("/api/events");
+  if (!res.ok) throw new Error("이벤트 로그를 불러오지 못했습니다.");
+  return res.json();
+}
+
 // 장애 주입/리셋은 서버에서 ADMIN_TOKEN으로 보호된다(배포 환경).
 // 대시보드에서 입력한 토큰을 저장해두고 관리 요청마다 헤더로 보낸다.
 const ADMIN_TOKEN_KEY = "vs.adminToken";
@@ -104,7 +112,9 @@ export async function injectConfig(patch: Partial<RuntimeConfig>): Promise<void>
   });
 }
 
-export async function resetMetrics(): Promise<void> {
+// 메트릭뿐 아니라 서킷/세마포어 큐/rate limiter까지 서버 쪽 상태를 전부 초기화한다.
+// 부하 주입 뒤 막혀버린 상태를 Render 재시작 없이 여기서 바로 풀 수 있다.
+export async function resetAll(): Promise<void> {
   await fetch("/api/metrics/reset", { method: "POST", headers: adminHeaders() }).catch(() => {});
 }
 
