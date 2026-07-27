@@ -3,7 +3,9 @@ services:
     name: voicesearch
     runtime: node
     plan: free
-    buildCommand: cd web && npm install && npm run build && cd ../server && npm install && npm run build
+    # NODE_ENV=production 상태에서 npm install만 하면 devDependencies(vite, typescript,
+    # @types/* 등 빌드 도구)가 빠져서 tsc/vite build가 깨진다. --include=dev로 강제 설치.
+    buildCommand: cd web && npm install --include=dev && npm run build && cd ../server && npm install --include=dev && npm run build
     startCommand: cd server && npm start
     healthCheckPath: /api/health
     envVars:

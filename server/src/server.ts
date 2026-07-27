@@ -54,18 +54,16 @@ function rateLimit(req: express.Request, res: express.Response, next: express.Ne
 app.use("/api/search", rateLimit, searchRouter);
 app.use("/api/voice", rateLimit, voiceRouter);
 
-// 장애 주입/메트릭 리셋은 데모용 관리 기능이다. 공개된 채로 배포되면 누구나 rate
-// limiter를 끄거나 degradation=reject로 검색 전체를 중단시킬 수 있다(CORS는 브라우저만
-// 막을 뿐 curl은 못 막는다). ADMIN_TOKEN이 설정돼 있으면 헤더로 검사하고, 토큰 없이
-// 프로덕션(NODE_ENV=production)에 올라간 경우엔 아예 닫는다. 로컬 개발은 개방.
+// 장애 주입/메트릭 리셋은 포트폴리오 데모용 관리 기능이다. 방문자 누구나 대시보드에서
+// 눌러볼 수 있게 의도적으로 열어둔다. ADMIN_TOKEN을 설정하면 그 값과 일치하는 헤더가
+// 있을 때만 허용해 잠글 수 있고, 설정하지 않으면(기본값) 누구나 사용 가능하다.
+// 주의: 인스턴스 하나가 상태(rate limit, degradation 등)를 전역으로 공유하므로, 열어두면
+// 한 방문자의 조작이 그 시점의 다른 방문자에게도 그대로 영향을 준다. 데모 목적상 감수함.
 function adminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
   const token = process.env.ADMIN_TOKEN;
   if (token) {
     if (req.headers["x-admin-token"] === token) return next();
     return res.status(401).json({ error: "관리 토큰이 올바르지 않습니다." });
-  }
-  if (process.env.NODE_ENV === "production") {
-    return res.status(403).json({ error: "프로덕션에서는 ADMIN_TOKEN 없이 관리 기능을 쓸 수 없습니다." });
   }
   next();
 }
