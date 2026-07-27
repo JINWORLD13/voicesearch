@@ -291,13 +291,24 @@ export default function Dashboard() {
             </button>
             <button
               className="ctl"
-              onClick={() => {
-                resetAll();
-                setSeries([]);
-                prevRef.current = null;
-              }}
+              disabled={busy === "reset"}
+              onClick={() =>
+                withBusy("reset", async () => {
+                  // 1초마다 도는 폴링과 타이밍이 어긋나면, 리셋 요청이 서버에 닿기 전에
+                  // 폴링이 먼저 돌아 예전 값을 한 번 더 찍을 수 있다. 리셋이 끝난 뒤
+                  // 곧바로 한 번 더 가져와서 화면이 기다리지 않고 바로 반영되게 한다.
+                  await resetAll();
+                  setSeries([]);
+                  prevRef.current = null;
+                  try {
+                    setMetrics(await fetchMetrics());
+                  } catch {
+                    /* 다음 폴링에서 채워진다 */
+                  }
+                })
+              }
             >
-              전체 초기화 (메트릭·서킷·대기열)
+              {busy === "reset" ? "초기화 중..." : "전체 초기화 (메트릭·서킷·대기열)"}
             </button>
           </div>
         </div>
