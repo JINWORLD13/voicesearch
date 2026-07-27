@@ -60,6 +60,10 @@ export default function Dashboard() {
   const [needToken, setNeedToken] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const prevRef = useRef<{ total: number; t: number } | null>(null);
+  // 이벤트 로그는 서버가 과거 기록도 들고 있지만, 대시보드는 새로고침 시점부터의
+  // 사건만 보여준다(과거 기록을 다시 불러오지 않음) — 새로고침하면 화면이 깨끗해진다.
+  const sessionStartRef = useRef<number>(Date.now());
+  const seenEventsRef = useRef<Map<string, LogEvent>>(new Map());
 
   useEffect(() => {
     let alive = true;
@@ -90,11 +94,25 @@ export default function Dashboard() {
     const id = setInterval(tick, 1000);
     tick();
 
-    // 이벤트 로그는 자주 안 바뀌니 메트릭보다 느슨하게 돈다
+    // 이벤트 로그는 자주 안 바뀌니 메트릭보다 느슨하게 돈다.
+    // 서버는 과거 기록도 갖고 있지만, 여기선 이 페이지가 열린 시점(sessionStartRef)
+    // 이후의 사건만 골라 누적한다 — 그래야 새로고침할 때마다 깨끗하게 시작한다.
     const tickEvents = async () => {
       try {
         const e = await fetchEvents();
-        if (alive) setEvents(e);
+        if (!alive) return;
+        let changed = false;
+        for (const ev of e) {
+          if (ev.ts < sessionStartRef.current) continue;
+          const key = `${ev.ts}:${ev.message}`;
+          if (!seenEventsRef.current.has(key)) {
+            seenEventsRef.current.set(key, ev);
+            changed = true;
+          }
+        }
+        if (changed) {
+          setEvents(Array.from(seenEventsRef.current.values()).sort((a, b) => a.ts - b.ts));
+        }
       } catch {
         /* 서버 재시작 중 등은 조용히 넘긴다 */
       }
