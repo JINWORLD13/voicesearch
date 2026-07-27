@@ -9,9 +9,11 @@ const router = Router();
 // ElevenLabs 무료 플랜이 월 1만 자라, 긴 답변은 앞부분만 읽는다
 const MAX_TTS_LENGTH = 600;
 
-// ElevenLabs 기본 제공 음성(Rachel). 다국어 모델이라 한국어도 읽는다.
+// ElevenLabs 기본 제공 음성(Adam). 다국어 모델이라 한국어도 읽는다.
+// Rachel 등 일부 프리메이드 보이스는 무료 플랜 API 호출 시 402(paid_plan_required)로 막혀서
+// 프리메이드 중 무료 API로 실제 동작 확인된 Adam을 기본값으로 쓴다.
 // 다른 음성을 쓰려면 .env의 ELEVENLABS_VOICE_ID로 바꾼다.
-const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
+const DEFAULT_VOICE_ID = "pNInz6obpgDQGcFmaJgB";
 
 router.post("/", async (req, res) => {
   const text = (req.body?.text || "").trim();

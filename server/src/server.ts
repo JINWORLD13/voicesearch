@@ -1,4 +1,6 @@
 import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import searchRouter, { cacheStats } from "./routes/search.js";
@@ -96,6 +98,18 @@ app.get("/api/admin/config", adminOnly, (_req, res) => res.json(runtimeConfig));
 app.post("/api/admin/config", adminOnly, (req, res) => {
   patchConfig(req.body || {});
   res.json({ ok: true, config: runtimeConfig });
+});
+
+// 프론트(web/dist)를 같은 서버가 서빙한다. Netlify 같은 별도 정적 호스팅 없이
+// 배포 하나로 끝내기 위함 — 도메인이 하나라 CORS/리다이렉트 설정도 필요 없어진다.
+// 로컬 개발은 vite dev 서버(5173)를 쓰므로 web/dist가 없어도 상관없다.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const webDist = path.join(__dirname, "../../web/dist");
+app.use(express.static(webDist));
+app.get(/^(?!\/api).*/, (_req, res) => {
+  res.sendFile(path.join(webDist, "index.html"), (err) => {
+    if (err) res.status(404).json({ error: "not found" });
+  });
 });
 
 const PORT = Number(process.env.PORT || 3001);

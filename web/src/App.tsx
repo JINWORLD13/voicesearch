@@ -167,7 +167,10 @@ export default function App() {
         </div>
       </nav>
 
-      {view === "dashboard" && <Dashboard />}
+      {/* 탭을 바꿔도 폴링/부하 주입 상태가 유지되도록 언마운트 대신 숨김 처리 */}
+      <div style={{ display: view === "dashboard" ? "block" : "none" }}>
+        <Dashboard />
+      </div>
 
       {view === "search" && (
         <>
