@@ -6,6 +6,17 @@
 
 type Waiter = { resolve: () => void; reject: (e: Error) => void };
 
+// 관리자 초기화(reset)로 대기열에서 쫓겨난 대기자가 받는 에러.
+// 일반 Error가 아니라 전용 클래스로 던지는 이유: 이 거절은 "외부 API가 실패했다"가
+// 아니라 "우리가 스스로 취소했다"라서, 서킷 브레이커가 실패로 세면 안 된다.
+// guard.ts가 이 클래스를 보고 서킷의 실패 집계에서 제외한다.
+export class SemaphoreResetError extends Error {
+  constructor() {
+    super("관리자가 대기열을 초기화해 호출이 취소됨");
+    this.name = "SemaphoreResetError";
+  }
+}
+
 export class Semaphore {
   private permits: number; // 지금 남은 자리 수
   private readonly queue: Waiter[] = []; // 자리를 기다리는 사람들
@@ -37,10 +48,10 @@ export class Semaphore {
   // 부하 테스트로 쌓인 대기열을 관리자가 강제로 비운다. 이미 자리를 잡고 실행 중인
   // 호출(inUse)은 건드리지 않는다 — 그 호출들은 끝나면 각자 release()로 자리를
   // 정상 반납할 것이므로, 여기서 permits를 만지면 반납이 이중으로 잡혀 어긋난다.
-  // 아직 순서를 기다리던 대기자만 즉시 에러로 떨어뜨려 큐를 비운다.
+  // 아직 순서를 기다리던 대기자만 즉시 SemaphoreResetError로 떨어뜨려 큐를 비운다.
   reset(): void {
     const waiting = this.queue.splice(0, this.queue.length);
-    for (const w of waiting) w.reject(new Error("관리자가 대기열을 초기화해 호출이 취소됨"));
+    for (const w of waiting) w.reject(new SemaphoreResetError());
   }
 
   // fn을 자리 안에서 실행하고, 끝나면(성공이든 실패든) 자리를 반납한다.

@@ -10,7 +10,7 @@
 // 한 번의 call()로 전부 걸린다. 외부 의존성(gemini, exa, elevenlabs)마다 하나씩 둔다.
 
 import { CircuitBreaker } from "./circuitBreaker.js";
-import { Semaphore } from "./semaphore.js";
+import { Semaphore, SemaphoreResetError } from "./semaphore.js";
 import { withTimeout } from "./timeout.js";
 
 // 일시적 오류만 재시도한다. 400/401/404처럼 고쳐도 안 되는 오류는 바로 던진다.
@@ -55,6 +55,9 @@ export class Guard {
       failureThreshold: opts.failureThreshold,
       resetMs: opts.resetMs,
       label: opts.label,
+      // 관리자 초기화로 대기열에서 쫓겨난 호출의 거절은 외부 API의 실패가 아니다.
+      // 이걸 거르지 않으면 reset() 직후 거절들이 실패로 집계돼 회로가 도로 열린다.
+      ignore: (e) => e instanceof SemaphoreResetError,
     });
     this.semaphore = new Semaphore(opts.maxConcurrent);
     this.retryDelays = opts.retryDelays ?? [500, 1000, 2000];
@@ -70,8 +73,11 @@ export class Guard {
     );
   }
 
-  // 관리자가 대시보드에서 강제 초기화할 때 쓴다. 대기열부터 비워야(먼저 실행)
-  // 그로 인해 세는 실패가 뒤이은 서킷 초기화로 덮여, 최종 상태가 항상 깨끗한 closed다.
+  // 관리자가 대시보드에서 강제 초기화할 때 쓴다.
+  // 주의: 대기자 거절은 프로미스라 마이크로태스크로 "나중에" 도착하므로, 호출 순서를
+  // 어떻게 바꿔도 순서만으로는 서킷을 지킬 수 없다(거절 집계가 서킷 초기화 뒤에 실행됨).
+  // 그래서 순서가 아니라 에러 분류로 해결한다 — 거절은 SemaphoreResetError로 던지고,
+  // 서킷이 그 에러를 실패로 세지 않는다(ignore). 최종 상태가 항상 깨끗한 closed다.
   reset(): void {
     this.semaphore.reset();
     this.breaker.reset();

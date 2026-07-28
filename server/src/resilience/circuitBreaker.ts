@@ -27,7 +27,15 @@ export class CircuitBreaker {
   private shortCircuited = 0; // 차단으로 즉시 실패시킨 횟수(관측용)
 
   constructor(
-    private readonly opts: { failureThreshold: number; resetMs: number; label: string }
+    private readonly opts: {
+      failureThreshold: number;
+      resetMs: number;
+      label: string;
+      // 실패로 세지 않을 에러를 거른다(resilience4j의 ignoreExceptions에 해당).
+      // 예: 관리자가 대기열을 초기화해 생긴 취소는 외부 API의 실패가 아니므로
+      // 회로를 여는 근거가 되면 안 된다. 에러 자체는 그대로 호출자에게 던진다.
+      ignore?: (err: unknown) => boolean;
+    }
   ) {}
 
   async run<T>(fn: () => Promise<T>): Promise<T> {
@@ -48,7 +56,7 @@ export class CircuitBreaker {
       this.onSuccess();
       return result;
     } catch (err) {
-      this.onFailure();
+      if (!this.opts.ignore?.(err)) this.onFailure();
       throw err;
     }
   }
