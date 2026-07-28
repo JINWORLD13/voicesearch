@@ -181,7 +181,8 @@ for (const part of parts) {
 ダッシュボードで「外部AIを殺す」などの障害を注入すると、サーキットが開いて
 グラフが跳ねる様子をリアルタイムで観察できる。各層の代替案比較(ライブラリ/インフラ
 レベル)と測定方法論は [RESILIENCE.ja.md](RESILIENCE.ja.md) にまとめた。障害注入
-エンドポイントはデプロイ時にADMIN_TOKENで保護する。
+エンドポイントは訪問者が体験できるようデフォルトで公開しつつ、放置された操作は
+最終操作の10分後に自動で正常化され、ADMIN_TOKENを設定すればロックできる。
 
 ---
 
@@ -311,7 +312,7 @@ if (blob) {
 - LLM: Gemini `gemini-3.6-flash`(デフォルト)または OpenAI、無料ティアで動作
 - 音声入力: Web Speech API (ブラウザ内蔵)
 - 音声出力: ElevenLabs TTS + speechSynthesisフォールバック
-- レジリエンス: Rate Limiter / Circuit Breaker / Bulkhead / キャッシュを自作 (ユニットテスト21個、node:test)
+- レジリエンス: Rate Limiter / Circuit Breaker / Bulkhead / キャッシュを自作 (ユニットテスト26個、node:test)
 - ロギング・可観測性: pino構造化ログ + インメモリメトリクス(p50/p95/p99) + リアルタイムダッシュボード
 - 負荷テスト: 自作SSEスクリプト + k6
 

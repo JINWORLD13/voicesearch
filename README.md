@@ -123,7 +123,7 @@ npm run dev            # http://localhost:5173
 크롬에서 열고 마이크 버튼을 눌러 "2026년 최저시급 얼마야?"처럼 물어보면 됨.
 ELEVENLABS_API_KEY는 없어도 동작함(브라우저 음성으로 폴백).
 
-3. 테스트 (회복탄력성 유틸 21개)
+3. 테스트 (회복탄력성 유틸 26개 — 4계층 조합 guard 테스트 포함)
 
 ```bash
 cd server && npm test

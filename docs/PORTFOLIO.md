@@ -180,8 +180,9 @@ for (const part of parts) {
 
 대시보드에서 "외부 AI 죽이기" 같은 장애를 주입하면 서킷이 열리고 그래프가 튀는 걸
 실시간으로 볼 수 있음. 각 계층의 대안 비교(라이브러리/인프라 레벨)와 측정 방법론은
-[RESILIENCE.md](RESILIENCE.md)에 정리했음. 장애 주입 엔드포인트는 배포 시
-ADMIN_TOKEN으로 보호함.
+[RESILIENCE.md](RESILIENCE.md)에 정리했음. 장애 주입 엔드포인트는 방문자가 체험할 수
+있게 기본 공개하되, 방치된 조작은 마지막 조작 10분 뒤 자동 정상화되고 ADMIN_TOKEN을
+설정하면 잠글 수 있음.
 
 ---
 
@@ -311,7 +312,7 @@ if (blob) {
 - LLM: Gemini `gemini-3.6-flash`(기본) 또는 OpenAI, 무료 티어로 동작
 - 음성 입력: Web Speech API (브라우저 내장)
 - 음성 출력: ElevenLabs TTS + speechSynthesis 폴백
-- 회복탄력성: Rate Limiter / Circuit Breaker / Bulkhead / 캐시 직접 구현 (유닛 테스트 21개, node:test)
+- 회복탄력성: Rate Limiter / Circuit Breaker / Bulkhead / 캐시 직접 구현 (유닛 테스트 26개, node:test)
 - 로깅·관측: pino 구조화 로그 + 인메모리 메트릭(p50/p95/p99) + 실시간 대시보드
 - 부하 테스트: 자체 SSE 스크립트 + k6
 

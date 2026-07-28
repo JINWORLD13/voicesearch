@@ -64,7 +64,7 @@ X-Forwarded-For(프록시 뒤 실제 IP) 우선. 검색뿐 아니라 음성(/api
 결과 (실측)
 capacity 5, refill 2/s에서 한 IP로 12연발 → 처음 7건 통과(버스트 + 그사이 회복),
 이후 429. 같은 순간 다른 IP는 전부 통과. 사용자별 격리가 동작함.
-유닛 테스트 4개로 버스트 소진, 시간 회복, capacity 상한, key 독립을 고정했음.
+유닛 테스트 5개로 버스트 소진, 시간 회복, capacity 상한, key 독립, 런타임 설정 즉시 반영을 고정했음.
 
 대안·확장
 직접 구현 대신 `rate-limiter-flexible`(메모리/Redis/Postgres 백엔드 교체 가능)를
