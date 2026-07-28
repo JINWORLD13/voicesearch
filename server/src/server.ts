@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
-import searchRouter, { cacheStats } from "./routes/search.js";
+import searchRouter, { cacheStats, resetCacheStats } from "./routes/search.js";
 import voiceRouter from "./routes/voice.js";
 import { metrics } from "./metrics.js";
 import { guardMetrics, resetGuards } from "./guards.js";
@@ -59,7 +59,8 @@ app.use("/api/voice", rateLimit, voiceRouter);
 // 눌러볼 수 있게 의도적으로 열어둔다. ADMIN_TOKEN을 설정하면 그 값과 일치하는 헤더가
 // 있을 때만 허용해 잠글 수 있고, 설정하지 않으면(기본값) 누구나 사용 가능하다.
 // 주의: 인스턴스 하나가 상태(rate limit, degradation 등)를 전역으로 공유하므로, 열어두면
-// 한 방문자의 조작이 그 시점의 다른 방문자에게도 그대로 영향을 준다. 데모 목적상 감수함.
+// 한 방문자의 조작이 그 시점의 다른 방문자에게도 그대로 영향을 준다. 데모 목적상
+// 감수하되, 방치된 조작은 마지막 조작 10분 뒤 자동 정상화된다(runtimeConfig.ts).
 function adminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
   const token = process.env.ADMIN_TOKEN;
   if (token) {
@@ -94,10 +95,11 @@ app.get("/api/metrics", (_req, res) => {
 // 소진)도 Render 재시작 없이 여기서 바로 풀 수 있도록 범위를 넓혔다.
 app.post("/api/metrics/reset", adminOnly, (_req, res) => {
   metrics.reset();
+  resetCacheStats();
   resetGuards();
   rateLimiter.reset();
   runtimeConfig.degradation = "none";
-  eventLog.push("admin", "전체 초기화 실행(메트릭·서킷·대기열·rate limiter)");
+  eventLog.push("admin", "전체 초기화 실행(메트릭·캐시 통계·서킷·대기열·rate limiter)");
   res.json({ ok: true });
 });
 

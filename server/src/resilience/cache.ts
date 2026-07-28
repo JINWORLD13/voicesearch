@@ -53,6 +53,14 @@ export class LruTtlCache<V> {
     }
   }
 
+  // 부하 테스트 회차 사이에 통계만 0으로 되돌린다. 저장된 답변 항목은 유지한다 —
+  // cache-only 저하 데모나 이어지는 실험이 기존 캐시를 계속 쓸 수 있어야 하기 때문.
+  resetStats(): void {
+    this.hits = 0;
+    this.misses = 0;
+    this.evictions = 0;
+  }
+
   // 관측용: 적중률은 캐시가 실제로 일을 하는지 보여주는 핵심 지표
   get stats() {
     const total = this.hits + this.misses;

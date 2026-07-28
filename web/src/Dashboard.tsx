@@ -147,6 +147,9 @@ export default function Dashboard() {
   const success = c["requests.success"] ?? 0;
   const cacheHit = c["requests.cacheHit"] ?? 0;
   const errors = c["requests.error"] ?? 0;
+  // 부하 주입은 응답을 기다리지 않고 본문을 끊는 가짜 클라이언트라 "중단"으로
+  // 집계된다(성공도 실패도 아님). 숨기면 "유입은 많은데 처리가 0"으로 보여서 명시한다.
+  const aborted = c["requests.aborted"] ?? 0;
   const served = success + cacheHit;
   const total = served + errors;
 
@@ -160,7 +163,7 @@ export default function Dashboard() {
 
       {/* 상태 카드 */}
       <div className="cards">
-        <Card label="총 유입" value={String(ingress)} sub={`처리 ${served} · 429 ${rateLimited}`} />
+        <Card label="총 유입" value={String(ingress)} sub={`처리 ${served} · 중단 ${aborted} · 429 ${rateLimited}`} />
         <Card
           label="성공률"
           value={total ? `${Math.round((served / total) * 100)}%` : "-"}

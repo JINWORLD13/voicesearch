@@ -5,6 +5,8 @@
 // 이 store가 있어서 포폴 데모가 성립한다: "외부 AI를 죽여보자(실패율 100%)" 버튼을
 // 누르면 이 값이 바뀌고, 다음 요청부터 서킷이 열리는 걸 그래프로 볼 수 있다.
 
+import { eventLog } from "./eventLog.js";
+
 export type DegradationLevel =
   | "none" // 정상: 검색 + 스트리밍 + 음성 전부 제공
   | "no-tts" // 1단계 저하: 음성 합성 포기(텍스트만). TTS가 가장 무겁고 덜 중요
@@ -31,8 +33,30 @@ export const runtimeConfig = {
   degradation: "none" as DegradationLevel,
 };
 
+// 시작 시점의 값을 복사해 둔다. 자동 정상화가 되돌아갈 기준점.
+const defaults = { ...runtimeConfig };
+
+// 자동 정상화: 관리 기능이 공개돼 있어서, 방문자가 "reject" 같은 저하를 걸어두고
+// 떠나면 다음 방문자는 이유도 모른 채 실패만 본다. 그래서 마지막 관리 조작 후
+// 10분이 지나면 설정을 시작값으로 되돌린다(조작이 이어지면 타이머도 미뤄진다).
+// unref()로 이 타이머가 프로세스 종료를 막지 않게 한다.
+const REVERT_AFTER_MS = 10 * 60 * 1000;
+let revertTimer: NodeJS.Timeout | undefined;
+
+function scheduleAutoRevert(): void {
+  if (revertTimer) clearTimeout(revertTimer);
+  revertTimer = setTimeout(() => {
+    revertTimer = undefined;
+    const changed = JSON.stringify(runtimeConfig) !== JSON.stringify(defaults);
+    Object.assign(runtimeConfig, defaults);
+    if (changed) eventLog.push("admin", "관리 조작 후 10분 경과 — 설정을 자동 정상화");
+  }, REVERT_AFTER_MS);
+  revertTimer.unref();
+}
+
 // 대시보드가 보내는 부분 갱신을 안전 범위로 반영한다
 export function patchConfig(patch: Record<string, unknown>): void {
+  scheduleAutoRevert();
   if ("mockFailRate" in patch) runtimeConfig.mockFailRate = clamp(Number(patch.mockFailRate), 0, 1);
   if ("mockMinMs" in patch) runtimeConfig.mockMinMs = clamp(Number(patch.mockMinMs), 0, 60000);
   if ("mockMaxMs" in patch) runtimeConfig.mockMaxMs = clamp(Number(patch.mockMaxMs), 0, 60000);

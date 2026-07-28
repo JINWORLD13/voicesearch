@@ -39,6 +39,17 @@ test("최근에 쓴 키는 축출 대상에서 밀려난다", () => {
   assert.equal(cache.get("b"), undefined); // b가 밀려남
 });
 
+test("resetStats는 통계만 지우고 저장된 항목은 유지한다", () => {
+  const cache = new LruTtlCache<string>(10, 1000);
+  cache.set("질문", "답변");
+  cache.get("질문"); // hit 1
+  cache.get("없는키"); // miss 1
+  cache.resetStats();
+  assert.equal(cache.stats.hits, 0);
+  assert.equal(cache.stats.misses, 0);
+  assert.equal(cache.get("질문"), "답변"); // 항목은 남아 있다
+});
+
 test("hitRate 통계가 히트/미스를 반영한다", () => {
   const cache = new LruTtlCache<number>(10, 10000);
   cache.set("a", 1);

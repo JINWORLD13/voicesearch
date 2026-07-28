@@ -29,6 +29,12 @@ export function cacheStats() {
   return answerCache.stats;
 }
 
+// "전체 초기화"가 부른다. 통계만 지우고 캐시된 답변은 남긴다(회차별로 깨끗하게 재되,
+// 데모 진행에 필요한 캐시 항목까지 날리지는 않는다).
+export function resetCacheStats() {
+  answerCache.resetStats();
+}
+
 // 캐시 적중률을 높이려고 키를 정규화한다.
 // "2026년 최저시급  얼마야?" 와 "2026년 최저시급 얼마야?"를 같은 질문으로 본다.
 function cacheKey(q: string): string {
@@ -166,14 +172,26 @@ router.post("/", async (req, res) => {
       }
     }
 
+    // 탭 닫기나 부하 도구의 본문 취소로 클라이언트가 먼저 떠난 요청은 성공이
+    // 아니다(답이 아무에게도 전달되지 않았다). 별도로 센다. 지연은 기록한다 —
+    // 끊긴 뒤에도 서버가 실제로 쓴 시간이고, 대시보드 부하 주입(응답을 기다리지
+    // 않고 끊는 가짜 클라이언트)의 지연 신호도 여기서 나온다.
+    if (clientGone) {
+      const elapsed = Date.now() - started;
+      metrics.inc("requests.aborted");
+      metrics.recordLatency(elapsed);
+      log.info({ event: "search.aborted", path, latencyMs: elapsed, answerLen: answer.length });
+      return res.end();
+    }
+
     const elapsed = Date.now() - started;
     send({ type: "done", elapsedMs: elapsed });
     metrics.recordLatency(elapsed);
     metrics.inc("requests.success");
 
-    // 3) 성공한 답변만 캐시에 넣는다. 빈 답변이나, 연결이 끊겨 중간에 멈춘
-    //    부분 답변은 넣지 않는다(잘린 답이 캐시에 남아 다음 사용자에게 나가면 안 됨).
-    if (cacheOn && answer.trim() && !clientGone) {
+    // 3) 성공한 답변만 캐시에 넣는다. 빈 답변은 넣지 않고, 연결이 끊겨 중간에
+    //    멈춘 부분 답변은 위에서 이미 걸러졌다(잘린 답이 다음 사용자에게 나가면 안 됨).
+    if (cacheOn && answer.trim()) {
       answerCache.set(key, { answer, sources: sourcesPayload, path });
     }
     log.info({ event: "search.done", path, latencyMs: elapsed, answerLen: answer.length });
