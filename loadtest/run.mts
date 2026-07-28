@@ -9,6 +9,10 @@
 //   예: npx tsx loadtest/run.mts 100 500
 // 서버는 MOCK_LLM=1로 띄워야 실제 LLM 없이 서버 계층만 측정된다.
 
+// SSE 파싱은 서버와 같은 순수 함수를 그대로 쓴다(테스트도 그쪽에 있음).
+// 파서를 여기서 또 만들면 잘림 처리 같은 미묘한 로직이 갈라진다.
+import { parseSSEBuffer } from "../server/src/sse.js";
+
 const BASE = process.env.LOADTEST_BASE || "http://localhost:3001";
 const CONCURRENCY = Number(process.argv[2] || 100);
 const TOTAL = Number(process.argv[3] || 500);
@@ -40,12 +44,9 @@ async function oneRequest(question: string): Promise<Result> {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() ?? "";
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith("data:")) continue;
-        const ev = JSON.parse(line.slice(5));
+      const parsed = parseSSEBuffer(buffer);
+      buffer = parsed.rest;
+      for (const ev of parsed.events as Array<{ type?: string; cached?: boolean }>) {
         if (ev.type === "done") outcome = ev.cached ? "cached" : "success";
         else if (ev.type === "error") outcome = "error";
       }
