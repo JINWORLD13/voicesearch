@@ -14,7 +14,10 @@
 
 라이브 링크: https://voicesearch-cwh9.onrender.com (Render 무료 티어라 첫 요청은 느릴 수 있음)
 
-스크린샷과 데모 영상은 배포와 함께 `docs/screenshots/`에 추가 예정.
+![검색 화면 — 질문하면 출처 목록이 먼저 뜨고, 답변이 스트리밍된 뒤 음성으로 읽어준다](screenshots/search.png)
+
+![장애 주입 후의 대시보드 — 서킷이 열리고, 429와 중단이 집계되고, 이벤트 로그에 서킷 open이 남는다](screenshots/dashboard.png)
+
 로컬 실행 방법은 [README](../README.md#실행-방법)에 있음.
 
 ---

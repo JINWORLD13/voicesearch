@@ -9,6 +9,8 @@
 검색은 Exa API 또는 Gemini 내장 구글 검색, 음성 합성은 ElevenLabs 또는
 브라우저 내장 음성을 씀.
 
+![검색 화면 — 질문하면 출처 목록이 먼저 뜨고, 답변이 스트리밍된 뒤 음성으로 읽어준다](docs/screenshots/search.png)
+
 ## 왜 만들었나
 
 LLM은 학습 시점 이후의 일을 모름. 앞서 문서 업로드 기반 RAG 챗봇(DocChat)을
@@ -82,7 +84,11 @@ Gemini와 OpenAI를 .env의 LLM_PROVIDER 값 하나로 바꿀 수 있음. 두 SD
 Breaker → Bulkhead(API별 세마포어) → Graceful Degradation의 4계층에 캐시·재시도·
 타임아웃을 더했음. 각 결정의 대안 비교와 부하 테스트 실측(캐시 p50 3905→1ms,
 장애 시 서킷이 벽시계 절반 단축 등)은 [docs/RESILIENCE.md](docs/RESILIENCE.md)에
-정리했음. 대시보드에서 장애를 주입하며 방어가 발동하는 걸 실시간으로 볼 수 있음.
+정리했음. 대시보드에서 장애를 주입하며 방어가 발동하는 걸 실시간으로 볼 수 있고,
+주입된 설정은 마지막 조작 10분 뒤 자동으로 정상화됨(방문자가 걸어두고 떠나도
+데모가 오염된 채 남지 않게).
+
+!["외부 AI 죽이기"를 누른 뒤의 대시보드 — 서킷이 열리고(차단 80), 429와 중단이 집계되고, 이벤트 로그에 서킷 open이 남는다](docs/screenshots/dashboard.png)
 
 ## 기술 스택
 

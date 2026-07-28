@@ -14,7 +14,10 @@
 
 ライブリンク: https://voicesearch-cwh9.onrender.com (Renderの無料ティアなので初回リクエストは遅いことがある)
 
-スクリーンショットとデモ動画はデプロイと合わせて `docs/screenshots/` に追加予定。
+![検索画面 — 質問すると出典リストが先に表示され、回答がストリーミングされた後、音声で読み上げる](screenshots/search.png)
+
+![障害注入後のダッシュボード — サーキットが開き、429と中断が集計され、イベントログにサーキットopenが残る](screenshots/dashboard.png)
+
 ローカルでの実行方法は [README](../README.ja.md#実行方法) にある。
 
 ---
