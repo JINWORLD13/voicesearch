@@ -127,13 +127,17 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onended = () => {
+      // 재생이 끝나든 실패하든(손상된 응답, 자동재생 차단 등) blob URL을 회수하고
+      // 버튼 상태를 되돌린다. 안 하면 "정지" 상태로 고착되고 URL이 누수된다.
+      const cleanup = () => {
         URL.revokeObjectURL(url);
         setVoiceState("idle");
       };
+      audio.onended = cleanup;
+      audio.onerror = cleanup;
       setVoiceEngine("elevenlabs");
       setVoiceState("playing");
-      audio.play();
+      audio.play().catch(cleanup);
     } else {
       // 서버에 ElevenLabs 키가 없거나 호출이 실패한 경우.
       // 데모가 끊기지 않게 브라우저 내장 음성으로 대신 읽는다.
@@ -147,8 +151,13 @@ export default function App() {
   }
 
   function stopVoice() {
-    audioRef.current?.pause();
-    audioRef.current = null;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      // onended가 안 불린 채 멈추는 경로라, blob URL을 여기서 회수한다(이중 회수는 무해)
+      URL.revokeObjectURL(audio.src);
+      audioRef.current = null;
+    }
     speechSynthesis.cancel();
     setVoiceState("idle");
   }
