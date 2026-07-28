@@ -1,0 +1,7 @@
+// 배포용 빌드 설정. 타입 검사는 tsconfig.json이 테스트까지 전부 보고,
+// 실제로 dist에 내보내는 건 여기서 테스트를 뺀 것만 내보낸다.
+// 나누지 않으면 *.test.js가 프로덕션 산출물에 섞여 Render까지 따라간다.
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["src/**/*.test.ts"]
+}

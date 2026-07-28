@@ -3,7 +3,6 @@ import { requestVoice, streamSearch } from "./api";
 import type { Source } from "./api";
 import Dashboard from "./Dashboard";
 import "./App.css";
-import "./Dashboard.css";
 
 type Phase = "idle" | "searching" | "answering" | "done";
 type VoiceState = "idle" | "loading" | "playing";
