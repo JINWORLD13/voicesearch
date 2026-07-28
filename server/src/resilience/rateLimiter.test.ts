@@ -42,3 +42,24 @@ test("사용자(key)별로 버킷이 독립적이다", () => {
   assert.equal(limiter.allow("B"), true);
   assert.equal(limiter.trackedKeys, 2);
 });
+
+test("런타임 설정 변경이 이미 버킷을 가진 key에도 즉시 반영된다", () => {
+  // 대시보드 슬라이더가 바꾸는 상황. 버킷은 생성 시점 설정을 물고 있으므로,
+  // 설정이 달라지면 기존 key의 버킷을 새로 만들어 즉시 적용돼야 한다.
+  let capacity = 2;
+  const limiter = new RateLimiter(
+    () => capacity,
+    () => 0.001 // 회복 거의 없음
+  );
+  assert.equal(limiter.allow("A"), true);
+  assert.equal(limiter.allow("A"), true);
+  assert.equal(limiter.allow("A"), false); // 옛 용량(2) 소진
+
+  capacity = 5; // 슬라이더로 용량을 올림
+  // 새 설정의 버킷(가득 참)으로 갈아타서 다시 허용돼야 한다
+  assert.equal(limiter.allow("A"), true);
+
+  capacity = 1; // 내리면 내린 대로 즉시 적용
+  assert.equal(limiter.allow("A"), true); // 새 버킷의 1개
+  assert.equal(limiter.allow("A"), false); // 바로 소진
+});

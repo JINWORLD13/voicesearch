@@ -18,8 +18,8 @@ export class TokenBucket {
   private lastRefill: number;
 
   constructor(
-    private readonly capacity: number, // 버킷 최대 크기 = 허용 가능한 순간 버스트
-    private readonly refillPerSec: number // 초당 채워지는 토큰 수 = 지속 허용 속도
+    readonly capacity: number, // 버킷 최대 크기 = 허용 가능한 순간 버스트
+    readonly refillPerSec: number // 초당 채워지는 토큰 수 = 지속 허용 속도
   ) {
     this.tokens = capacity; // 시작은 가득 찬 상태
     this.lastRefill = Date.now();
@@ -61,11 +61,15 @@ export class RateLimiter {
 
   // key(보통 IP)별로 버킷을 두고, 그 버킷에서 토큰을 하나 쓴다.
   // 설정값을 함수로 받는 이유: 대시보드가 런타임에 강도를 바꿔도 즉시 반영되게.
+  // 버킷은 생성 시점의 설정을 물고 있으므로, 설정이 달라진 버킷은 새로 만들어
+  // 기존 key에도 변경이 바로 적용되게 한다(새 버킷은 가득 찬 상태로 시작).
   allow(key: string): boolean {
     this.sweepIfNeeded();
+    const capacity = this.getCapacity();
+    const refillPerSec = this.getRefillPerSec();
     let bucket = this.buckets.get(key);
-    if (!bucket) {
-      bucket = new TokenBucket(this.getCapacity(), this.getRefillPerSec());
+    if (!bucket || bucket.capacity !== capacity || bucket.refillPerSec !== refillPerSec) {
+      bucket = new TokenBucket(capacity, refillPerSec);
       this.buckets.set(key, bucket);
     }
     return bucket.tryConsume();
@@ -73,12 +77,14 @@ export class RateLimiter {
 
   // 오래 안 쓴 IP의 버킷이 무한정 쌓이는 걸 막는다(메모리 누수 방지).
   // 5분에 한 번, 가득 찬(=한동안 요청 없던) 버킷을 정리한다.
+  // 기준은 현재 설정이 아니라 그 버킷 자신의 capacity다 — 설정이 바뀐 뒤에도
+  // 옛 설정으로 만든 버킷이 "가득 찼는데 영영 정리 안 되는" 일이 없게.
   private sweepIfNeeded(): void {
     const now = Date.now();
     if (now - this.lastSweep < 5 * 60 * 1000) return;
     this.lastSweep = now;
     for (const [key, bucket] of this.buckets) {
-      if (bucket.available >= this.getCapacity()) this.buckets.delete(key);
+      if (bucket.available >= bucket.capacity) this.buckets.delete(key);
     }
   }
 
