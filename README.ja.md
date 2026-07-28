@@ -1,4 +1,4 @@
-[한국어](README.md) | **日本語**
+[한국어](README.md) | **日本語** | [English](README.en.md)
 
 # VoiceSearch
 
@@ -174,7 +174,7 @@ loadtest/
 docs/
   RESILIENCE.md      4層防御のPAR (問題-代替案比較-実装-実測)
   PORTFOLIO.md       アーキテクチャと技術選定の概要
-  *.ja.md            上記ドキュメントの日本語版 (README.ja.md を含む)
+  *.ja.md / *.en.md  上記ドキュメントの日本語・英語版 (README を含む)
 ```
 
 ## 限界と次にやりたいこと

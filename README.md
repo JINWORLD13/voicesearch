@@ -1,4 +1,4 @@
-**한국어** | [日本語](README.ja.md)
+**한국어** | [日本語](README.ja.md) | [English](README.en.md)
 
 # VoiceSearch
 
@@ -171,7 +171,7 @@ loadtest/
 docs/
   RESILIENCE.md      4계층 방어의 PAR (문제-대안비교-구현-실측)
   PORTFOLIO.md       아키텍처와 기술 선택 개요
-  *.ja.md            위 문서의 일본어판 (README.ja.md 포함)
+  *.ja.md / *.en.md  위 문서의 일본어·영어판 (README 포함)
 ```
 
 ## 한계와 다음에 해볼 것
