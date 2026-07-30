@@ -4,6 +4,8 @@
 
 **Live demo**: https://voicesearch-cwh9.onrender.com (free Render tier — the first request may be slow)
 
+**GitHub**: https://github.com/JINWORLD13/voicesearch · **Timeline**: 2026.06 ~ 2026.07 · **Team size**: solo (design · development · load testing · documentation)
+
 Ask a question out loud and VoiceSearch searches the web, answers with sources,
 and reads the answer back to you. Built with React, Express (TypeScript), and the
 Gemini API. Search runs on the Exa API or Gemini's built-in Google Search, and
@@ -72,8 +74,9 @@ event type, so it handles both orders.
 Gemini and OpenAI switch with a single .env value (LLM_PROVIDER). The two SDKs
 stream in different shapes, so both are wrapped as "an async generator that
 yields text chunks" — route code never knows which provider is attached.
-Transient errors like 429/5xx are retried with exponential backoff; errors like
-401 (bad key) are not retried and the user is told the cause immediately.
+Transient errors like 429/5xx are retried with exponential backoff
+(0.5s → 1s → 2s); errors like 401 (bad key) are not retried and the user is
+told the cause immediately.
 
 ### Search fires the moment you stop talking
 
@@ -85,16 +88,71 @@ text search remains.
 
 ### Four layers of defense against overload and failure
 
-This server wraps a slow, unstable external AI, so I framed the core problem as
-"survive when the outside wobbles" rather than "process more." Rate Limiter
-(hand-rolled Token Bucket) → Circuit Breaker → Bulkhead (per-API semaphores) →
-Graceful Degradation, plus cache, retries, and timeouts. The alternatives
-comparison behind each decision and the measured load-test results (cache p50
-3905→1ms, the circuit halving wall-clock time under failure, and more) are in
+This server wraps an external AI that is slow (5–7s) and occasionally fails
+(429 / 503), so I framed the core problem as "survive when the outside wobbles"
+rather than "process more." Rate Limiter (hand-rolled Token Bucket) → Circuit
+Breaker → Bulkhead (per-API semaphores) → Graceful Degradation, plus cache,
+retries, and timeouts. Graceful Degradation steps down through
+`none → no-tts → cache-only → reject`; speech synthesis is dropped first because
+it is the heaviest call and, even when it fails, the browser's built-in voice
+takes over so the experience never breaks completely. The alternatives
+comparison behind each decision is in
 [docs/RESILIENCE.en.md](docs/RESILIENCE.en.md). You can inject failures from the
 dashboard and watch the defenses fire in real time, and injected settings
 auto-revert 10 minutes after the last change (so a visitor who walks away can't
 leave the demo polluted).
+
+### The wrapping order changes the behavior
+
+Circuit breaker, retry, semaphore, and timeout are composed into a single
+`call()`, and the order they wrap in changes the behavior completely. If the
+semaphore sits on the outside, a request keeps holding its slot while it waits
+out the backoff (3.5s in total) — so the semaphore can be full while zero
+external calls are actually in flight. That's why retry was moved outside the
+semaphore, so a request takes a slot only at the moment of the real call, and
+the circuit breaker sits outermost so an already-dead API is never retried at
+all.
+
+```
+circuit → retry → semaphore → timeout   (outermost to innermost)
+```
+
+### Measured load-test results
+
+There are no real-user metrics (it's a personal demo), so these come from load
+tests instead. Real Gemini can't be load-tested (rate limits, cost, and it would
+be meaningless anyway), so the external LLM is isolated behind a "slow,
+occasionally failing" mock. That leaves the server layer as the only variable,
+so resilience is measured on its own.
+
+**Answer cache (load with repeated questions mixed in)**
+
+|  | Cache ON | Cache OFF |
+| --- | --- | --- |
+| p50 latency | **1ms** | 3905ms |
+| Throughput | **32.4 req/s** | 12.1 req/s |
+
+**Circuit breaker (50% failure injection)**
+
+|  | Circuit ON | Circuit OFF |
+| --- | --- | --- |
+| Wall-clock time | **8.9s** | 16.5s |
+| p50 latency | **649ms** | 3924ms |
+| Fast failures (circuit_open) | 97 | 0 |
+
+The success rate itself is actually lower with the circuit on (30% vs 46%), and
+that is the intended trade-off: it is better to learn about the failure in 0.6s
+and retry than to hang for 8s and fail anyway.
+
+**Rate Limiter** — with capacity 5 and refill 2/s, firing 12 requests in a row
+from one IP lets the first 7 through (the burst plus what refilled meanwhile)
+and rejects the rest with 429. At the same moment every request from a different
+IP passes, confirming that per-user isolation works.
+
+**Observability** — pino structured JSON logs and in-memory metrics
+(p50 / p95 / p99) are aggregated by the server itself and cross-checked against
+the client-side measurements. I look at percentiles rather than averages because
+an average hides the slowest 5%, and what users actually feel is decided at p95.
 
 ![Dashboard after "kill the external AI" — the circuit opens (80 short-circuited), 429s and aborts are counted, and the event log records the circuit opening](docs/screenshots/dashboard.png)
 
@@ -197,4 +255,12 @@ docs/
   number of results and body excerpts can't be controlled, and inline [1]
   markers can't be attached to the answer. Use the Exa path when that control
   matters.
+- The rate limiter, cache, and metrics are all in memory, so a single instance is
+  assumed. Scaling horizontally would mean moving them to Redis — this wasn't an
+  oversight, it was a deliberately drawn scope line.
+- Graceful degradation is still manual (injected from the dashboard). It could be
+  extended to raise its own level based on semaphore queue length or circuit
+  state.
+- A timeout rejects, but the external call that already started is not actually
+  cancelled (no AbortController yet).
 - Deployed on Render's free tier (Express serves the React build output as well).
