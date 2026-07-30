@@ -150,7 +150,9 @@ buffer += decoder.decode(value, { stream: true });
 const parts = buffer.split("\n\n");  // イベントは空行区切り
 buffer = parts.pop() ?? "";          // 最後の未完成断片は残しておく
 for (const part of parts) {
-  if (part.trim().startsWith("data:")) onEvent(JSON.parse(part.trim().slice(5)));
+  const line = part.trim();
+  if (!line.startsWith("data:")) continue;
+  onEvent(JSON.parse(line.slice(5)));
 }
 ```
 

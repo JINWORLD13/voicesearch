@@ -158,7 +158,9 @@ buffer += decoder.decode(value, { stream: true });
 const parts = buffer.split("\n\n");  // events are separated by blank lines
 buffer = parts.pop() ?? "";          // keep the last, possibly incomplete piece
 for (const part of parts) {
-  if (part.trim().startsWith("data:")) onEvent(JSON.parse(part.trim().slice(5)));
+  const line = part.trim();
+  if (!line.startsWith("data:")) continue;
+  onEvent(JSON.parse(line.slice(5)));
 }
 ```
 
