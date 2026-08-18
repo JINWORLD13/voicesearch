@@ -101,3 +101,60 @@ test("진짜 실패가 쌓이면 회로가 열리고 즉시 실패한다", async
   guard.reset();
   assert.equal(await guard.call(() => Promise.resolve("복구")), "복구");
 });
+
+// --- 스트리밍 호출(callStream) ---
+// call()로 스트림을 "여는 것"만 감쌌을 때 조용히 새 나가던 두 겹을 확인한다.
+
+async function* ticker(n: number, gapMs: number) {
+  for (let i = 0; i < n; i++) {
+    yield i;
+    await sleep(gapMs);
+  }
+}
+
+test("callStream은 스트림을 다 쓸 때까지 동시성 자리를 붙들고 있는다", async () => {
+  const g = new Guard({ label: "s", maxConcurrent: 2, timeoutMs: 5000, failureThreshold: 5, resetMs: 1000, retryDelays: [] });
+
+  const peaks: number[] = [];
+  const consume = async () => {
+    for await (const _ of g.callStream(async () => ticker(5, 10))) {
+      peaks.push(g.metrics.inUse); // 토큰이 흐르는 "도중"의 동시 실행 수
+    }
+  };
+  await Promise.all([consume(), consume(), consume(), consume()]);
+
+  // 자리를 열자마자 반납했다면 스트리밍 중 inUse가 0으로 보이고 4개가 함께 흘렀을 것이다
+  assert.ok(peaks.every((n) => n >= 1 && n <= 2), `동시 실행이 상한을 넘음: ${[...new Set(peaks)]}`);
+  assert.equal(g.metrics.inUse, 0); // 다 끝나면 전부 반납된다
+});
+
+test("스트림 도중의 실패도 서킷이 실패로 센다(열리는 순간이 헤더 뒤여도)", async () => {
+  const g = new Guard({ label: "s", maxConcurrent: 4, timeoutMs: 5000, failureThreshold: 3, resetMs: 1000, retryDelays: [] });
+
+  // 스트림은 정상적으로 열리고 토큰도 조금 흐르다가, 본문 도중에 죽는 장애.
+  // 실제 SDK가 이렇게 실패한다(200 헤더 → 본문에서 에러 청크).
+  const dyingStream = async () =>
+    (async function* () {
+      yield "안";
+      throw Object.assign(new Error("본문에서 죽음"), { status: 503 });
+    })();
+
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(async () => {
+      for await (const _ of g.callStream(dyingStream)) { /* 소비만 한다 */ }
+    });
+  }
+
+  assert.equal(g.metrics.circuit.state, "open"); // 예전엔 영원히 closed였다
+});
+
+test("소비자가 중간에 그만둬도 자리는 반납되고 서킷은 닫힌 채로 남는다", async () => {
+  const g = new Guard({ label: "s", maxConcurrent: 2, timeoutMs: 5000, failureThreshold: 2, resetMs: 1000, retryDelays: [] });
+
+  // 사용자가 탭을 닫아 라우트가 for await를 break 하는 상황
+  for await (const _ of g.callStream(async () => ticker(10, 5))) break;
+
+  assert.equal(g.metrics.inUse, 0); // 자리 누수 없음
+  assert.equal(g.metrics.queued, 0);
+  assert.equal(g.metrics.circuit.state, "closed"); // 우리가 그만둔 것이지 외부 실패가 아니다
+});

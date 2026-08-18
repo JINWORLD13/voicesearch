@@ -26,13 +26,27 @@ export class Semaphore {
   }
 
   // 자리를 하나 확보한다. 자리가 없으면 날 때까지 기다린다.
-  private acquire(): Promise<void> {
+  private take(): Promise<void> {
     if (this.permits > 0) {
       this.permits--;
       return Promise.resolve();
     }
     // 자리가 없으면 큐에 대기표를 넣고, release가 깨워줄 때까지 멈춘다
     return new Promise<void>((resolve, reject) => this.queue.push({ resolve, reject }));
+  }
+
+  // 자리를 잡고 "반납표"를 돌려준다. run()은 fn이 끝나는 시점이 곧 반납 시점이지만,
+  // 스트리밍 호출은 프로미스가 끝나도(스트림이 열려도) 일이 한참 남아 있어서
+  // 자기가 직접 자리를 붙들고 있다가 다 쓰고 반납해야 한다. 그 경로를 위해 연다.
+  // 반납표는 여러 번 불러도 한 번만 먹는다(이중 반납으로 자리 수가 어긋나지 않게).
+  async acquire(): Promise<() => void> {
+    await this.take();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.release();
+    };
   }
 
   // 자리를 반납한다. 기다리는 사람이 있으면 그 사람에게 자리를 바로 넘긴다.
@@ -56,11 +70,11 @@ export class Semaphore {
 
   // fn을 자리 안에서 실행하고, 끝나면(성공이든 실패든) 자리를 반납한다.
   async run<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquire();
+    const release = await this.acquire();
     try {
       return await fn();
     } finally {
-      this.release();
+      release();
     }
   }
 

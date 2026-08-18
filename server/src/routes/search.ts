@@ -57,7 +57,12 @@ router.post("/", async (req, res) => {
   const started = Date.now();
   metrics.inc("requests.total");
 
-  const question = (req.body?.question || "").trim();
+  // 문자열이 아닌 question(숫자, 객체, 배열...)이 오면 .trim()이 TypeError로 터진다.
+  // 그 예외는 아래 try 블록 바깥이라 라우트를 빠져나가 Express 기본 핸들러가 잡고,
+  // 이 라우트가 약속한 400 JSON 대신 HTML 500이 나간다(에러 카운터도 안 올라간다).
+  // 타입부터 좁혀서, 잘못된 본문은 다른 잘못된 입력과 똑같이 400으로 돌려보낸다.
+  const raw = req.body?.question;
+  const question = typeof raw === "string" ? raw.trim() : "";
   if (!question) {
     metrics.inc("requests.badRequest");
     return res.status(400).json({ error: "검색어를 입력해주세요." });

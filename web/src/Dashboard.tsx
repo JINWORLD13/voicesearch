@@ -15,6 +15,9 @@ import "./Dashboard.css";
 
 type Point = { p50: number; p95: number; rate: number };
 
+// 이벤트 로그로 유지할 최대 개수(서버 eventLog는 100개를 들고 있다)
+const MAX_EVENTS = 200;
+
 // 최근 60초 시계열을 그리는 간단한 SVG 라인차트(외부 차트 라이브러리 없이).
 function LineChart({ points, pick, color, unit }: { points: Point[]; pick: (p: Point) => number; color: string; unit: string }) {
   const w = 560;
@@ -59,6 +62,13 @@ export default function Dashboard() {
   // 401/403이 오면 토큰 입력창을 보여주고, 맞는 토큰을 저장하면 다시 열린다.
   const [needToken, setNeedToken] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  // 슬라이더를 드래그하는 동안의 값은 로컬에만 둔다. 서버 값을 그대로 value로 쓰면
+  // onChange마다 POST가 나가고(마우스 이동 속도 = 초당 수십 건), 그때마다 React가
+  // 아직 낡은 서버 값으로 썸을 되돌려 커서 아래에서 손잡이가 튄다. 게다가 그 수십 건이
+  // 전부 admin 이벤트로 남아 이벤트 로그가 슬라이더 기록으로 뒤덮인다.
+  // 그래서 드래그 중엔 화면만 움직이고, 손을 뗄 때 한 번만 보낸다.
+  const [capDraft, setCapDraft] = useState<number | null>(null);
+  const [refillDraft, setRefillDraft] = useState<number | null>(null);
   const prevRef = useRef<{ total: number; t: number } | null>(null);
   // 이벤트 로그는 서버가 과거 기록도 들고 있지만, 대시보드는 새로고침 시점부터의
   // 사건만 보여준다(과거 기록을 다시 불러오지 않음) — 새로고침하면 화면이 깨끗해진다.
@@ -111,7 +121,13 @@ export default function Dashboard() {
           }
         }
         if (changed) {
-          setEvents(Array.from(seenEventsRef.current.values()).sort((a, b) => a.ts - b.ts));
+          const sorted = Array.from(seenEventsRef.current.values()).sort((a, b) => a.ts - b.ts);
+          // 대시보드 탭은 숨김 처리라 언마운트되지 않는다(App.tsx). 오래 열어두면 맵이
+          // 끝없이 자라므로 최근 것만 남긴다. 서버 eventLog가 100개만 들고 있어서,
+          // 200개를 남기면 잘라낸 항목이 다시 "새 이벤트"로 들어올 일은 없다.
+          const kept = sorted.slice(-MAX_EVENTS);
+          seenEventsRef.current = new Map(kept.map((ev) => [`${ev.ts}:${ev.message}`, ev]));
+          setEvents(kept);
         }
       } catch {
         /* 서버 재시작 중 등은 조용히 넘긴다 */
@@ -127,9 +143,39 @@ export default function Dashboard() {
     };
   }, []);
 
+  // 관리 요청이 401로 막히면 조용히 넘기지 않는다 — 버튼을 눌렀는데 아무 일도 일어나지
+  // 않는 것처럼 보이는 게 제일 나쁘다. 토큰 입력창을 띄워 원인을 알려준다.
+  function isAuthError(e: unknown): boolean {
+    const status = (e as { status?: number })?.status;
+    return status === 401 || status === 403;
+  }
+
   async function inject(patch: Partial<RuntimeConfig>) {
-    await injectConfig(patch);
-    fetchConfig().then(setConfig).catch(() => {});
+    try {
+      await injectConfig(patch);
+    } catch (e) {
+      if (isAuthError(e)) setNeedToken(true);
+      return;
+    }
+    // 새 설정을 받아올 때까지 기다린다. 기다리지 않으면 슬라이더 초안을 지우는 쪽이
+    // 먼저 돌아, 아직 낡은 서버 값으로 썸이 한 번 되돌아갔다 다시 튀는 게 보인다.
+    try {
+      setConfig(await fetchConfig());
+    } catch {
+      /* 다음 폴링에서 채워진다 */
+    }
+  }
+
+  // 손을 뗀 순간 한 번만 서버에 보낸다. inject()가 새 설정을 다시 받아온 뒤에야
+  // 로컬 초안을 지워, 낡은 값으로 썸이 잠깐 되돌아가는 깜빡임을 없앤다.
+  async function commit(
+    key: "rateLimitCapacity" | "rateLimitRefillPerSec",
+    draft: number | null,
+    clear: (v: number | null) => void
+  ) {
+    if (draft === null) return;
+    await inject({ [key]: draft });
+    clear(null);
   }
 
   async function withBusy(label: string, fn: () => Promise<void>) {
@@ -273,12 +319,30 @@ export default function Dashboard() {
               {config?.rateLimitEnabled ? "켜짐 → 끄기" : "꺼짐 → 켜기"}
             </button>
             <label className="slider">
-              용량 {config?.rateLimitCapacity ?? 5}
-              <input type="range" min={1} max={50} value={config?.rateLimitCapacity ?? 5} onChange={(e) => inject({ rateLimitCapacity: Number(e.target.value) })} />
+              용량 {capDraft ?? config?.rateLimitCapacity ?? 5}
+              <input
+                type="range"
+                min={1}
+                max={50}
+                value={capDraft ?? config?.rateLimitCapacity ?? 5}
+                onChange={(e) => setCapDraft(Number(e.target.value))}
+                onPointerUp={() => commit("rateLimitCapacity", capDraft, setCapDraft)}
+                onKeyUp={() => commit("rateLimitCapacity", capDraft, setCapDraft)}
+                onBlur={() => commit("rateLimitCapacity", capDraft, setCapDraft)}
+              />
             </label>
             <label className="slider">
-              회복 {config?.rateLimitRefillPerSec ?? 2}/s
-              <input type="range" min={1} max={50} value={config?.rateLimitRefillPerSec ?? 2} onChange={(e) => inject({ rateLimitRefillPerSec: Number(e.target.value) })} />
+              회복 {refillDraft ?? config?.rateLimitRefillPerSec ?? 2}/s
+              <input
+                type="range"
+                min={1}
+                max={50}
+                value={refillDraft ?? config?.rateLimitRefillPerSec ?? 2}
+                onChange={(e) => setRefillDraft(Number(e.target.value))}
+                onPointerUp={() => commit("rateLimitRefillPerSec", refillDraft, setRefillDraft)}
+                onKeyUp={() => commit("rateLimitRefillPerSec", refillDraft, setRefillDraft)}
+                onBlur={() => commit("rateLimitRefillPerSec", refillDraft, setRefillDraft)}
+              />
             </label>
           </div>
         </div>
@@ -309,7 +373,14 @@ export default function Dashboard() {
                   // 1초마다 도는 폴링과 타이밍이 어긋나면, 리셋 요청이 서버에 닿기 전에
                   // 폴링이 먼저 돌아 예전 값을 한 번 더 찍을 수 있다. 리셋이 끝난 뒤
                   // 곧바로 한 번 더 가져와서 화면이 기다리지 않고 바로 반영되게 한다.
-                  await resetAll();
+                  try {
+                    await resetAll();
+                  } catch (e) {
+                    // 서버가 거부했으면 아무것도 안 지워졌다. 그래프까지 비우면
+                    // "초기화된 것처럼" 보여서 상태를 오해하게 된다.
+                    if (isAuthError(e)) setNeedToken(true);
+                    return;
+                  }
                   setSeries([]);
                   prevRef.current = null;
                   try {

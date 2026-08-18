@@ -31,3 +31,8 @@ test("빈 버퍼는 이벤트 없이 안전하게 처리된다", () => {
   assert.deepEqual(events, []);
   assert.equal(rest, "");
 });
+
+test("깨진 조각 하나가 뒤따르는 이벤트까지 삼키지 않는다", () => {
+  const { events } = parseSSEBuffer(`data: {"type":"a"}\n\ndata: 이건JSON이아님\n\ndata: {"type":"b"}\n\n`);
+  assert.deepEqual(events, [{ type: "a" }, { type: "b" }]);
+});

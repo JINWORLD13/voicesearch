@@ -73,6 +73,44 @@ export class Guard {
     );
   }
 
+  // 스트리밍 호출용. call()은 프로미스가 resolve되면 그 호출이 끝난 것으로 보지만,
+  // LLM 스트리밍에서 resolve는 "이제부터 토큰이 흐른다"는 시작 신호일 뿐이다.
+  // 그래서 여는 것만 call()로 감싸면 보호막 두 겹이 조용히 새 나간다.
+  //   1) 세마포어 자리가 스트림이 열리자마자 반납된다. 동시 생성이 40개든 상한은
+  //      TTFB 동안만 걸려, maxConcurrent가 실제 동시 호출 수를 전혀 못 막는다.
+  //   2) 스트림 도중 죽는 실패가 서킷에 "성공"으로 기록된다. 헤더는 200으로 주고
+  //      본문에서 에러를 뱉는 장애(SDK가 실제로 이렇게 실패한다)에는 회로가 영영 안 열린다.
+  // 그래서 스트림을 다 쓸 때까지 자리와 서킷 판정을 붙들고 있는다.
+  //
+  // 두 가지는 의도적으로 다르게 뒀다.
+  //  - 재시도는 "여는 것"에만 건다. 토큰이 한 번 흐른 뒤에 다시 부르면 이미 화면에
+  //    나간 답 위에 중복으로 붙는다.
+  //  - 백오프 대기 중에도 자리를 붙들고 있는다. call()은 대기 중엔 자리를 놓지만,
+  //    여기선 곧 이어질 생성(5~7초)이 자리의 주된 사용처라 놓았다 다시 잡는 게
+  //    이득이 없고, 그 틈에 다른 호출이 끼어들면 상한을 넘게 된다.
+  async *callStream<T>(open: () => Promise<AsyncIterable<T>>): AsyncGenerator<T> {
+    const settle = this.breaker.begin(); // 회로가 열려 있으면 여기서 즉시 실패
+    let release: (() => void) | undefined;
+    try {
+      release = await this.semaphore.acquire();
+      const stream = await withRetry(
+        () => withTimeout(open(), this.opts.timeoutMs, this.opts.label),
+        this.opts.label,
+        this.retryDelays
+      );
+      for await (const chunk of stream) yield chunk;
+    } catch (e) {
+      settle(false, e);
+      throw e;
+    } finally {
+      release?.();
+      // 정상 종료뿐 아니라 소비자가 중간에 그만둔 경우(사용자가 탭을 닫아 clientGone)도
+      // 여기로 온다. 그건 외부 API가 실패한 게 아니므로 성공으로 마감한다.
+      // 마감을 아예 안 하면 half-open 시험표가 반납되지 않아 회로가 굳는다.
+      settle(true);
+    }
+  }
+
   // 관리자가 대시보드에서 강제 초기화할 때 쓴다.
   // 주의: 대기자 거절은 프로미스라 마이크로태스크로 "나중에" 도착하므로, 호출 순서를
   // 어떻게 바꿔도 순서만으로는 서킷을 지킬 수 없다(거절 집계가 서킷 초기화 뒤에 실행됨).

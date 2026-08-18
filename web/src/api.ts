@@ -41,7 +41,13 @@ export async function streamSearch(question: string, onEvent: (e: SearchEvent) =
     for (const part of parts) {
       const line = part.trim();
       if (!line.startsWith("data:")) continue;
-      onEvent(JSON.parse(line.slice(5)));
+      let event: SearchEvent;
+      try {
+        event = JSON.parse(line.slice(5));
+      } catch {
+        continue; // 깨진 조각 하나 때문에 뒤따르는 delta/done까지 잃지 않는다
+      }
+      onEvent(event);
     }
   }
 }
@@ -105,18 +111,29 @@ export async function fetchConfig(): Promise<RuntimeConfig> {
   return res.json();
 }
 
+// 관리 요청은 상태 코드를 삼키면 안 된다. 서버가 ADMIN_TOKEN으로 잠가 401을 줘도
+// 조용히 성공처럼 보이면, 대시보드는 "눌렀는데 아무 일도 안 일어난다"가 되고
+// 초기화는 실제로 아무것도 안 지운 채 그래프만 비운다. 호출한 쪽이 판단하게 던진다.
+function adminError(status: number, message: string): Error & { status: number } {
+  const err = new Error(message) as Error & { status: number };
+  err.status = status;
+  return err;
+}
+
 export async function injectConfig(patch: Partial<RuntimeConfig>): Promise<void> {
-  await fetch("/api/admin/config", {
+  const res = await fetch("/api/admin/config", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...adminHeaders() },
     body: JSON.stringify(patch),
   });
+  if (!res.ok) throw adminError(res.status, "설정을 적용하지 못했습니다.");
 }
 
 // 메트릭뿐 아니라 서킷/세마포어 큐/rate limiter까지 서버 쪽 상태를 전부 초기화한다.
 // 부하 주입 뒤 막혀버린 상태를 Render 재시작 없이 여기서 바로 풀 수 있다.
 export async function resetAll(): Promise<void> {
-  await fetch("/api/metrics/reset", { method: "POST", headers: adminHeaders() }).catch(() => {});
+  const res = await fetch("/api/metrics/reset", { method: "POST", headers: adminHeaders() });
+  if (!res.ok) throw adminError(res.status, "초기화하지 못했습니다.");
 }
 
 // 부하 발사: 브라우저에서 동시에 여러 검색을 쏜다.
@@ -139,12 +156,13 @@ export async function fireLoad(count: number, sameUser: boolean): Promise<void> 
 
 // 답변을 mp3로 받아온다. 서버에 ElevenLabs 키가 없거나 실패하면
 // null을 돌려주고, 호출한 쪽에서 브라우저 내장 음성으로 폴백한다.
-export async function requestVoice(text: string): Promise<Blob | null> {
+export async function requestVoice(text: string, signal?: AbortSignal): Promise<Blob | null> {
   try {
     const res = await fetch("/api/voice", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
+      signal, // 사용자가 정지하거나 새 검색을 시작하면 이 요청은 버린다
     });
     if (!res.ok) return null;
     return await res.blob();

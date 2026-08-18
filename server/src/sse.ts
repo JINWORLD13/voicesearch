@@ -14,7 +14,12 @@ export function parseSSEBuffer(buffer: string): { events: unknown[]; rest: strin
   for (const part of parts) {
     const line = part.trim();
     if (!line.startsWith("data:")) continue;
-    events.push(JSON.parse(line.slice(5)));
+    // 깨진 조각 하나로 스트림 전체를 잃지 않는다. 그 조각만 버리고 계속 읽는다.
+    try {
+      events.push(JSON.parse(line.slice(5)));
+    } catch {
+      continue;
+    }
   }
   return { events, rest };
 }

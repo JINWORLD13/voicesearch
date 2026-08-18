@@ -104,18 +104,28 @@ leave the demo polluted).
 
 ### The wrapping order changes the behavior
 
-Circuit breaker, retry, semaphore, and timeout are composed into a single
-`call()`, and the order they wrap in changes the behavior completely. If the
+Circuit breaker, retry, semaphore, and timeout are composed in one place —
+`call()` for one-shot calls, `callStream()` for streaming ones — and the order
+they wrap in changes the behavior completely. If the
 semaphore sits on the outside, a request keeps holding its slot while it waits
 out the backoff (3.5s in total) — so the semaphore can be full while zero
 external calls are actually in flight. That's why retry was moved outside the
-semaphore, so a request takes a slot only at the moment of the real call, and
-the circuit breaker sits outermost so an already-dead API is never retried at
-all.
+semaphore in `call()`, so a one-shot request takes a slot only at the moment of
+the real call, and the circuit breaker sits outermost so an already-dead API is
+never retried at all.
 
 ```
-circuit → retry → semaphore → timeout   (outermost to innermost)
+call()        circuit → retry → semaphore → timeout   (outermost to innermost)
+callStream()  circuit → semaphore → retry → timeout
 ```
+
+Streaming swaps the middle two on purpose. A `call()` is finished when its
+promise resolves, but a stream that resolves has only just opened — releasing
+the slot there would bound nothing but time-to-first-byte, and a failure
+arriving mid-body would be recorded as a success. So `callStream()` holds the
+slot and the circuit verdict until the last token; retry still wraps only the
+opening, because re-calling after tokens have shipped would duplicate the answer
+on screen.
 
 ### Measured load-test results
 
@@ -190,7 +200,7 @@ Open it in Chrome, press the mic button, and ask something like "What's the
 minimum wage in 2026?". It works without ELEVENLABS_API_KEY (falls back to the
 browser voice).
 
-3. Tests (26 resilience-utility tests, including the four-layer guard composition)
+3. Tests (35 resilience-utility tests, including the four-layer guard composition)
 
 ```bash
 cd server && npm test

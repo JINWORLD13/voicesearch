@@ -25,6 +25,7 @@ export class CircuitBreaker {
   private failures = 0;
   private openedAt = 0;
   private shortCircuited = 0; // 차단으로 즉시 실패시킨 횟수(관측용)
+  private trialInFlight = false; // half-open 시험 호출이 지금 나가 있는가
 
   constructor(
     private readonly opts: {
@@ -38,11 +39,16 @@ export class CircuitBreaker {
     }
   ) {}
 
-  async run<T>(fn: () => Promise<T>): Promise<T> {
+  // 호출 하나의 "시작"을 등록한다. 회로가 닫혀 있지 않으면 여기서 즉시 실패시킨다.
+  // 돌려주는 함수는 그 호출의 "끝"을 알리는 마감표다. 시작과 끝을 굳이 나눈 이유:
+  // 스트리밍 호출은 프로미스가 resolve되는 시점(스트림이 열린 순간)이 끝이 아니라
+  // 시작이라, run()처럼 한 프로미스로는 성공/실패를 제 시점에 기록할 수 없다.
+  begin(): (ok: boolean, err?: unknown) => void {
     if (this.state === "open") {
       if (Date.now() - this.openedAt >= this.opts.resetMs) {
         // 식을 만큼 식었으니 시험 삼아 한 번 열어본다
         this.state = "half-open";
+        this.trialInFlight = false;
         eventLog.push("circuit", `${this.opts.label} 서킷 half-open — 시험 호출 시작`);
       } else {
         // 아직 식지 않았다. 실제 호출 없이 즉시 실패시킨다(빠른 실패)
@@ -51,12 +57,37 @@ export class CircuitBreaker {
       }
     }
 
+    // half-open은 말 그대로 "딱 한 번" 시험해 보는 상태다. 시험 호출이 이미 나가 있으면
+    // 나머지는 여전히 빠른 실패로 돌려보낸다. 이 문지기가 없으면 resetMs가 지나는 순간
+    // 밀려 있던 요청이 전부 죽은 API로 한꺼번에 쏟아진다 — 회로를 연 목적이 사라진다.
+    let trial = false;
+    if (this.state === "half-open") {
+      if (this.trialInFlight) {
+        this.shortCircuited++;
+        throw new CircuitOpenError(this.opts.label);
+      }
+      this.trialInFlight = true;
+      trial = true;
+    }
+
+    let settled = false;
+    return (ok, err) => {
+      if (settled) return; // 마감은 한 번만 먹는다(중복 호출은 무해하게 무시)
+      settled = true;
+      if (trial) this.trialInFlight = false;
+      if (ok) this.onSuccess();
+      else if (!this.opts.ignore?.(err)) this.onFailure();
+    };
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    const settle = this.begin();
     try {
       const result = await fn();
-      this.onSuccess();
+      settle(true);
       return result;
     } catch (err) {
-      if (!this.opts.ignore?.(err)) this.onFailure();
+      settle(false, err);
       throw err;
     }
   }
@@ -87,6 +118,7 @@ export class CircuitBreaker {
     this.failures = 0;
     this.openedAt = 0;
     this.shortCircuited = 0;
+    this.trialInFlight = false;
     if (wasOpenish) eventLog.push("circuit", `${this.opts.label} 서킷 강제 초기화`);
   }
 

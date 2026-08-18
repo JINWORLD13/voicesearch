@@ -13,21 +13,43 @@ export type DegradationLevel =
   | "cache-only" // 2단계 저하: 캐시된 답만 제공, 새 외부 호출 거부
   | "reject"; // 최후: 검색 자체를 잠시 거부(핵심 자원 보호)
 
+// 숫자로 쓸 수 있는 값만 통과시킨다. Number()는 "abc"·{}·null·true를 조용히
+// NaN이나 0으로 바꾸는데, NaN이 설정에 박히면 조용히 넘어가지 않는다:
+// clamp가 NaN을 그대로 흘려보내고(Math.max(1, Math.min(10000, NaN)) === NaN),
+// 그 NaN이 rateLimitCapacity에 앉으면 TokenBucket의 tokens가 NaN이 되어
+// tryConsume()의 `NaN >= 1`이 영원히 false — 즉 모든 IP가 429로 막힌다.
+// 관리 엔드포인트가 기본적으로 열려 있으므로(server.ts) 이 문은 반드시 닫아야 한다.
+function toFinite(v: unknown): number | undefined {
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined; // null, undefined, {}, [], true, "", "abc", Infinity, NaN
+}
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+// 환경변수도 사람이 손으로 넣는 값이라 같은 위험이 있다(RATE_LIMIT_CAPACITY=abc면
+// 서버가 아예 못 쓰는 상태로 뜬다). 숫자로 못 읽히면 조용히 기본값으로 돌린다.
+function envNum(name: string, fallback: number, lo: number, hi: number): number {
+  const n = toFinite(process.env[name]);
+  return n === undefined ? fallback : clamp(n, lo, hi);
 }
 
 export const runtimeConfig = {
   // 외부 AI(mock) 장애 주입용. 실제 배포에선 MOCK_LLM 미설정이라 안 쓰이고,
   // 데모/부하에서만 이 값으로 "느리고 실패하는 외부 API"를 재현한다.
-  mockFailRate: clamp(Number(process.env.MOCK_LLM_FAIL_RATE ?? 0), 0, 1),
-  mockMinMs: Number(process.env.MOCK_LLM_MIN_MS ?? 2000),
-  mockMaxMs: Number(process.env.MOCK_LLM_MAX_MS ?? 6000),
+  mockFailRate: envNum("MOCK_LLM_FAIL_RATE", 0, 0, 1),
+  mockMinMs: envNum("MOCK_LLM_MIN_MS", 2000, 0, 60000),
+  mockMaxMs: envNum("MOCK_LLM_MAX_MS", 6000, 0, 60000),
 
   // Rate Limiter (IP별 Token Bucket)
   rateLimitEnabled: !process.env.RATE_LIMIT_OFF,
-  rateLimitCapacity: Number(process.env.RATE_LIMIT_CAPACITY ?? 5), // 순간 최대 버스트
-  rateLimitRefillPerSec: Number(process.env.RATE_LIMIT_REFILL ?? 2), // 초당 회복 토큰
+  rateLimitCapacity: envNum("RATE_LIMIT_CAPACITY", 5, 1, 10000), // 순간 최대 버스트
+  rateLimitRefillPerSec: envNum("RATE_LIMIT_REFILL", 2, 0.1, 10000), // 초당 회복 토큰
 
   // Graceful Degradation 레벨(과부하 시 뭘 포기할지)
   degradation: "none" as DegradationLevel,
@@ -57,12 +79,19 @@ function scheduleAutoRevert(): void {
 // 대시보드가 보내는 부분 갱신을 안전 범위로 반영한다
 export function patchConfig(patch: Record<string, unknown>): void {
   scheduleAutoRevert();
-  if ("mockFailRate" in patch) runtimeConfig.mockFailRate = clamp(Number(patch.mockFailRate), 0, 1);
-  if ("mockMinMs" in patch) runtimeConfig.mockMinMs = clamp(Number(patch.mockMinMs), 0, 60000);
-  if ("mockMaxMs" in patch) runtimeConfig.mockMaxMs = clamp(Number(patch.mockMaxMs), 0, 60000);
+  // 숫자로 못 읽히는 값은 반영하지 않고 기존 값을 유지한다(잘못 보낸 한 번의 요청이
+  // 설정을 망가뜨리지 않게). 유효한 값만 안전 범위로 접어서 넣는다.
+  const setNum = (key: "mockFailRate" | "mockMinMs" | "mockMaxMs" | "rateLimitCapacity" | "rateLimitRefillPerSec", lo: number, hi: number) => {
+    if (!(key in patch)) return;
+    const n = toFinite(patch[key]);
+    if (n !== undefined) runtimeConfig[key] = clamp(n, lo, hi);
+  };
+  setNum("mockFailRate", 0, 1);
+  setNum("mockMinMs", 0, 60000);
+  setNum("mockMaxMs", 0, 60000);
+  setNum("rateLimitCapacity", 1, 10000);
+  setNum("rateLimitRefillPerSec", 0.1, 10000);
   if ("rateLimitEnabled" in patch) runtimeConfig.rateLimitEnabled = Boolean(patch.rateLimitEnabled);
-  if ("rateLimitCapacity" in patch) runtimeConfig.rateLimitCapacity = clamp(Number(patch.rateLimitCapacity), 1, 10000);
-  if ("rateLimitRefillPerSec" in patch) runtimeConfig.rateLimitRefillPerSec = clamp(Number(patch.rateLimitRefillPerSec), 0.1, 10000);
   if ("degradation" in patch) {
     const levels: DegradationLevel[] = ["none", "no-tts", "cache-only", "reject"];
     if (levels.includes(patch.degradation as DegradationLevel)) {

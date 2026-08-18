@@ -152,7 +152,13 @@ buffer = parts.pop() ?? "";          // 마지막 미완성 조각은 남겨둔�
 for (const part of parts) {
   const line = part.trim();
   if (!line.startsWith("data:")) continue;
-  onEvent(JSON.parse(line.slice(5)));
+  let event: SearchEvent;
+  try {
+    event = JSON.parse(line.slice(5));
+  } catch {
+    continue;                          // 깨진 조각 하나로 뒤따르는 이벤트까지 잃지 않는다
+  }
+  onEvent(event);
 }
 ```
 
@@ -263,10 +269,11 @@ export function streamAnswer(question, sources) {
 }
 ```
 
-### 외부 호출 보호막: 네 겹을 한 번의 call()로
+### 외부 호출 보호막: 네 겹을 한 번의 호출로
 
 server/src/resilience/guard.ts — 모든 외부 API 호출(gemini, exa, elevenlabs)을
-서킷 브레이커 → 재시도 → 세마포어 → 타임아웃 순서로 감쌈. 재시도는 "나을 병"
+서킷 브레이커 → 재시도 → 세마포어 → 타임아웃 순서로 감쌈(스트리밍만 예외로
+callStream()이 세마포어를 재시도 바깥에 둠 — 아래 참고). 재시도는 "나을 병"
 (429/5xx 같은 일시 오류)만 지수 백오프로 다시 시도하고, 401(키 오류) 같은 "안 나을
 병"은 바로 던져 사용자에게 원인을 알림.
 
@@ -289,17 +296,30 @@ call<T>(fn: () => Promise<T>): Promise<T> {
 겹의 순서에 이유가 있음. 백오프로 기다리는 동안에는 세마포어 슬롯을 잡고 있지 않고
 (재시도가 세마포어 바깥), 죽은 API는 서킷이 가장 바깥에서 끊어 재시도조차 하지 않음.
 
+다만 스트리밍은 call()로 감쌀 수 없음. 프로미스가 resolve되는 순간이 "끝"이 아니라
+"이제부터 토큰이 흐른다"는 시작이라, 여는 것만 감싸면 슬롯이 곧바로 반납돼 동시성
+상한이 TTFB 동안에만 걸리고 스트림 도중의 실패가 서킷에 성공으로 기록됨. 그래서
+callStream()은 스트림을 다 쓸 때까지 슬롯과 서킷 판정을 붙들고, 재시도는 스트림을
+여는 것에만 검(토큰이 흐른 뒤 다시 부르면 답이 중복됨). 대신 백오프 대기 중에도
+슬롯을 쥐고 있는 건 감수한 트레이드오프 — 곧 이어질 5~7초 생성이 슬롯의 주 사용처라
+놓았다 다시 잡는 이득이 없음.
+
 ### 음성 폴백
 
 web/src/App.tsx — 서버 음성이 실패하면 브라우저 음성으로.
 
 ```ts
-const blob = await requestVoice(answer);   // 실패 시 null
+const gen = ++voiceGenRef.current;                  // 이 요청의 세대 번호
+const blob = await requestVoice(answer, controller.signal);
+if (gen !== voiceGenRef.current) return;            // 그새 정지했거나 새 검색이 시작됨
+
 if (blob) {
   new Audio(URL.createObjectURL(blob)).play();      // ElevenLabs mp3
 } else {
   const u = new SpeechSynthesisUtterance(answer);   // 브라우저 내장 음성
   u.lang = "ko-KR";
+  u.onend = () => setVoiceState("idle");
+  u.onerror = () => setVoiceState("idle");          // 없으면 버튼이 "정지"에 고착됨
   speechSynthesis.speak(u);
 }
 ```
@@ -314,7 +334,7 @@ if (blob) {
 - LLM: Gemini `gemini-3.6-flash`(기본) 또는 OpenAI, 무료 티어로 동작
 - 음성 입력: Web Speech API (브라우저 내장)
 - 음성 출력: ElevenLabs TTS + speechSynthesis 폴백
-- 회복탄력성: Rate Limiter / Circuit Breaker / Bulkhead / 캐시 직접 구현 (유닛 테스트 26개, node:test)
+- 회복탄력성: Rate Limiter / Circuit Breaker / Bulkhead / 캐시 직접 구현 (유닛 테스트 35개, node:test)
 - 로깅·관측: pino 구조화 로그 + 인메모리 메트릭(p50/p95/p99) + 실시간 대시보드
 - 부하 테스트: 자체 SSE 스크립트 + k6
 

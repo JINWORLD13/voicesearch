@@ -16,7 +16,10 @@ const MAX_TTS_LENGTH = 600;
 const DEFAULT_VOICE_ID = "pNInz6obpgDQGcFmaJgB";
 
 router.post("/", async (req, res) => {
-  const text = (req.body?.text || "").trim();
+  // search.ts와 같은 이유로 타입부터 좁힌다 — 문자열이 아닌 text는 .trim()에서
+  // 터져 400 대신 HTML 500이 나간다.
+  const raw = req.body?.text;
+  const text = typeof raw === "string" ? raw.trim() : "";
   if (!text) {
     return res.status(400).json({ error: "읽을 텍스트가 없습니다." });
   }

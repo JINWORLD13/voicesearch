@@ -152,7 +152,13 @@ buffer = parts.pop() ?? "";          // 最後の未完成断片は残してお�
 for (const part of parts) {
   const line = part.trim();
   if (!line.startsWith("data:")) continue;
-  onEvent(JSON.parse(line.slice(5)));
+  let event: SearchEvent;
+  try {
+    event = JSON.parse(line.slice(5));
+  } catch {
+    continue;                          // 壊れた1片で後続のdelta/doneまで失わない
+  }
+  onEvent(event);
 }
 ```
 
@@ -263,10 +269,11 @@ export function streamAnswer(question, sources) {
 }
 ```
 
-### 外部呼び出しの保護膜: 4重を1回のcall()で
+### 外部呼び出しの保護膜: 4重を1回の呼び出しで(call / callStream)
 
 server/src/resilience/guard.ts — すべての外部API呼び出し(gemini, exa, elevenlabs)を
-サーキットブレーカー → 再試行 → セマフォ → タイムアウトの順にラップする。再試行は
+サーキットブレーカー → 再試行 → セマフォ → タイムアウトの順にラップする。LLMの
+ストリーミングだけは call() ではなく callStream() で包む(理由は下記)。再試行は
 「治る病気」(429/5xxのような一時的エラー)だけを指数バックオフで再挑戦し、401(キー
 エラー)のような「治らない病気」は即座に投げてユーザーに原因を知らせる。
 
@@ -289,17 +296,28 @@ call<T>(fn: () => Promise<T>): Promise<T> {
 層の順序には理由がある。バックオフで待っている間はセマフォのスロットを掴んでおらず
 (再試行がセマフォの外側)、死んだAPIは最も外側のサーキットが遮断して再試行すら行わない。
 
+ただしストリーミングだけは別で、callStream()がセマフォを再試行の外側に置き、スロットも
+サーキットの判定もストリームを読み終えるまで保持する。プロミスのresolveは「これから
+トークンが流れる」合図でしかなく、そこで手放すとmaxConcurrentが生成中の同時実行を
+抑えられず、本文の途中で死んだ失敗もサーキットに成功として記録されるからだ。代償は
+バックオフ待ちの間もスロットを掴んだままになること。
+
 ### 音声フォールバック
 
 web/src/App.tsx — サーバー音声が失敗したらブラウザ音声へ。
 
 ```ts
-const blob = await requestVoice(answer);   // 失敗時は null
+const gen = ++voiceGenRef.current;                  // 世代番号で古い応答を捨てる
+const blob = await requestVoice(answer, controller.signal);
+if (gen !== voiceGenRef.current) return;            // 停止/新しい検索が始まっていた
+
 if (blob) {
   new Audio(URL.createObjectURL(blob)).play();      // ElevenLabs mp3
 } else {
   const u = new SpeechSynthesisUtterance(answer);   // ブラウザ内蔵音声
   u.lang = "ko-KR";
+  u.onend = () => setVoiceState("idle");
+  u.onerror = () => setVoiceState("idle");          // ないとボタンが「停止」で固まる
   speechSynthesis.speak(u);
 }
 ```
@@ -314,7 +332,7 @@ if (blob) {
 - LLM: Gemini `gemini-3.6-flash`(デフォルト)または OpenAI、無料ティアで動作
 - 音声入力: Web Speech API (ブラウザ内蔵)
 - 音声出力: ElevenLabs TTS + speechSynthesisフォールバック
-- レジリエンス: Rate Limiter / Circuit Breaker / Bulkhead / キャッシュを自作 (ユニットテスト26個、node:test)
+- レジリエンス: Rate Limiter / Circuit Breaker / Bulkhead / キャッシュを自作 (ユニットテスト35個、node:test)
 - ロギング・可観測性: pino構造化ログ + インメモリメトリクス(p50/p95/p99) + リアルタイムダッシュボード
 - 負荷テスト: 自作SSEスクリプト + k6
 

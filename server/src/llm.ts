@@ -9,9 +9,12 @@ import { openMockLlmStream } from "./mockLlm.js";
 // 라우트 쪽은 어느 프로바이더가 붙어 있는지 몰라도 된다.
 //
 // 재시도/타임아웃/동시성/서킷은 예전엔 이 파일의 withRetry가 재시도만 했지만,
-// 지금은 guards.ts의 Guard가 네 겹으로 한 번에 처리한다. 여기선 스트림을 여는
-// 호출만 guard.call()로 감싼다. 일단 토큰이 흐르기 시작하면(아래 for await)
-// 재시도할 수 없다 — 다시 부르면 이미 화면에 나간 답 위에 중복으로 붙기 때문.
+// 지금은 guards.ts의 Guard가 네 겹으로 한 번에 처리한다. 스트리밍은 guard.call()이
+// 아니라 guard.callStream()으로 감싼다 — call()은 프로미스가 resolve되면 끝난 것으로
+// 보는데, 스트리밍에서 그 시점은 "이제부터 토큰이 흐른다"는 시작일 뿐이라 세마포어
+// 자리가 곧바로 반납되고 스트림 도중의 실패가 서킷에 성공으로 기록되기 때문이다.
+// 재시도는 여는 것에만 걸린다. 일단 토큰이 흐르기 시작하면 다시 부를 수 없다 —
+// 이미 화면에 나간 답 위에 중복으로 붙기 때문(자세한 근거는 guard.ts의 callStream).
 
 function buildPrompt(question: string, sources: SearchResult[]) {
   const sourceBlock = sources
@@ -40,14 +43,13 @@ ${sourceBlock}
 async function* streamGemini(prompt: string) {
   // 부하 테스트 모드: 실제 SDK 대신 mock 스트림을 guard로 감싼다(같은 지점에서 개입)
   if (process.env.MOCK_LLM) {
-    const stream = await geminiGuard.call(() => openMockLlmStream(false));
-    for await (const chunk of stream) {
+    for await (const chunk of geminiGuard.callStream(() => openMockLlmStream(false))) {
       if (chunk.text) yield chunk.text;
     }
     return;
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const stream = await geminiGuard.call(() =>
+  const stream = geminiGuard.callStream(() =>
     ai.models.generateContentStream({
       model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
       contents: prompt,
@@ -61,7 +63,7 @@ async function* streamGemini(prompt: string) {
 async function* streamOpenAI(prompt: string) {
   // 키가 없으면 생성자부터 던지므로 실제 쓸 때만 만든다
   const openai = new OpenAI();
-  const stream = await openaiGuard.call(() =>
+  const stream = openaiGuard.callStream(() =>
     openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
@@ -90,7 +92,7 @@ export type GroundedEvent =
 export async function* streamGroundedAnswer(question: string): AsyncGenerator<GroundedEvent> {
   // 부하 테스트 모드: mock 스트림을 guard로 감싸 동일하게 처리한다
   if (process.env.MOCK_LLM) {
-    const stream = await geminiGuard.call(() => openMockLlmStream(true));
+    const stream = geminiGuard.callStream(() => openMockLlmStream(true));
     const seen = new Map<string, { title: string; url: string }>();
     for await (const chunk of stream) {
       if (chunk.text) yield { kind: "text", text: chunk.text };
@@ -117,7 +119,7 @@ export async function* streamGroundedAnswer(question: string): AsyncGenerator<Gr
 
 질문: ${question}`;
 
-  const stream = await geminiGuard.call(() =>
+  const stream = geminiGuard.callStream(() =>
     ai.models.generateContentStream({
       model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
       contents: prompt,

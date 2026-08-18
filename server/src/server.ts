@@ -124,7 +124,10 @@ const webDist = path.join(__dirname, "../../web/dist");
 app.use(express.static(webDist));
 app.get(/^(?!\/api).*/, (_req, res) => {
   res.sendFile(path.join(webDist, "index.html"), (err) => {
-    if (err) res.status(404).json({ error: "not found" });
+    // sendFile은 "파일이 없다"(헤더 전) 말고 "받는 쪽이 도중에 끊었다"(헤더 후)로도
+    // 실패한다. 후자에 응답을 또 쓰면 ERR_HTTP_HEADERS_SENT가 콜백 안에서 터져
+    // uncaughtException까지 올라간다. 이미 나간 응답은 손댈 수 없으니 그냥 둔다.
+    if (err && !res.headersSent) res.status(404).json({ error: "not found" });
   });
 });
 

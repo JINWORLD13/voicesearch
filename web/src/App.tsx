@@ -33,6 +33,12 @@ export default function App() {
   const busyRef = useRef(false);
   const recognitionRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // 음성 합성은 몇 초씩 걸린다. 그 사이 사용자가 정지를 누르거나 새 검색을 시작하면,
+  // 뒤늦게 도착한 "이전 답변"의 오디오가 새 화면 위에서 멋대로 재생된다 — 게다가 정지
+  // 버튼은 phase === "done"에서만 보여서 멈출 방법도 없다. 그래서 요청마다 세대 번호를
+  // 붙여 두고, 세대가 바뀐 뒤 도착한 응답은 재생하지 않고 버린다. 요청 자체도 끊는다.
+  const voiceGenRef = useRef(0);
+  const voiceAbortRef = useRef<AbortController | null>(null);
 
   async function search(raw: string) {
     const question = raw.trim();
@@ -80,7 +86,9 @@ export default function App() {
 
   function toggleListening() {
     if (listening) {
-      recognitionRef.current?.stop();
+      // stop()은 "말이 끝났다"로 처리돼 마지막 결과를 isFinal로 한 번 더 내보낸다.
+      // 그러면 취소하려고 누른 버튼이 오히려 검색을 실행시킨다. abort()는 결과 없이 끊는다.
+      recognitionRef.current?.abort();
       return;
     }
 
@@ -119,9 +127,15 @@ export default function App() {
       stopVoice();
       return;
     }
+    const gen = ++voiceGenRef.current;
+    const controller = new AbortController();
+    voiceAbortRef.current = controller;
     setVoiceState("loading");
 
-    const blob = await requestVoice(answer);
+    const blob = await requestVoice(answer, controller.signal);
+    // 기다리는 동안 정지했거나 새 검색이 시작됐으면 이 응답은 이미 남의 것이다
+    if (gen !== voiceGenRef.current) return;
+
     if (blob) {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -143,6 +157,8 @@ export default function App() {
       const utter = new SpeechSynthesisUtterance(answer.replace(/\s*\[\d+\]/g, ""));
       utter.lang = "ko-KR";
       utter.onend = () => setVoiceState("idle");
+      // onend만 달면 합성이 실패했을 때(음성 없음, 권한 등) 버튼이 "정지"에 고착된다
+      utter.onerror = () => setVoiceState("idle");
       setVoiceEngine("browser");
       setVoiceState("playing");
       speechSynthesis.speak(utter);
@@ -150,6 +166,10 @@ export default function App() {
   }
 
   function stopVoice() {
+    // 아직 안 돌아온 음성 요청이 있으면 그 결과를 무효로 만들고 요청도 끊는다
+    voiceGenRef.current++;
+    voiceAbortRef.current?.abort();
+    voiceAbortRef.current = null;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
@@ -225,7 +245,8 @@ export default function App() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {phase === "idle" && (
+      {/* 에러 배너가 떠 있는데 예시 질문까지 같이 뜨면 "실패했다"인지 "아직 시작 안 했다"인지 알 수 없다 */}
+      {phase === "idle" && !error && (
         <div className="examples">
           {EXAMPLE_QUESTIONS.map((q) => (
             <button key={q} className="example-chip" onClick={() => search(q)}>
@@ -263,23 +284,28 @@ export default function App() {
         </section>
       )}
 
-      {(answer || phase === "answering") && (
+      {/* phase === "done"도 조건에 넣는다. 답변이 빈 채로 끝나면(모델이 아무것도 못 냈을 때)
+          예전엔 답변도 소요 시간도 에러도 없는 빈 화면이 남아, 사용자가 뭘 기다려야 할지 몰랐다 */}
+      {(answer || phase === "answering" || phase === "done") && (
         <section className="answer">
           <p className="answer-text">
-            {answer}
+            {answer || (phase === "done" ? "답변을 만들지 못했어요. 질문을 바꿔서 다시 시도해주세요." : "")}
             {phase === "answering" && <span className="cursor" />}
           </p>
           {phase === "done" && (
             <div className="answer-footer">
-              <button
-                className="voice-btn"
-                onClick={toggleVoice}
-                disabled={voiceState === "loading"}
-              >
-                {voiceState === "idle" && "읽어주기"}
-                {voiceState === "loading" && "음성 만드는 중"}
-                {voiceState === "playing" && "정지"}
-              </button>
+              {/* 빈 답변에 "읽어주기"를 붙여봐야 읽을 게 없다 */}
+              {answer.trim() && (
+                <button
+                  className="voice-btn"
+                  onClick={toggleVoice}
+                  disabled={voiceState === "loading"}
+                >
+                  {voiceState === "idle" && "읽어주기"}
+                  {voiceState === "loading" && "음성 만드는 중"}
+                  {voiceState === "playing" && "정지"}
+                </button>
+              )}
               {voiceState === "playing" && voiceEngine === "browser" && (
                 <span className="voice-note">브라우저 내장 음성으로 읽는 중</span>
               )}

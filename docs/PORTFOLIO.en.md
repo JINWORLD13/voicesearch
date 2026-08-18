@@ -160,7 +160,13 @@ buffer = parts.pop() ?? "";          // keep the last, possibly incomplete piece
 for (const part of parts) {
   const line = part.trim();
   if (!line.startsWith("data:")) continue;
-  onEvent(JSON.parse(line.slice(5)));
+  let event: SearchEvent;
+  try {
+    event = JSON.parse(line.slice(5));
+  } catch {
+    continue;                          // one broken piece must not kill the stream
+  }
+  onEvent(event);
 }
 ```
 
@@ -276,8 +282,9 @@ export function streamAnswer(question, sources) {
 ### The protection wrapper: four layers in one call()
 
 server/src/resilience/guard.ts — every external API call (gemini, exa,
-elevenlabs) is wrapped in circuit breaker → retry → semaphore → timeout, in that
-order. Retry re-attempts only "curable" errors (transient 429/5xx) with
+elevenlabs) goes through one of two wrappers. One-shot calls use call(), which
+wraps circuit breaker → retry → semaphore → timeout, in that order; streaming
+calls use callStream() (below). Retry re-attempts only "curable" errors (transient 429/5xx) with
 exponential backoff; "incurable" ones like 401 (bad key) are thrown immediately
 so the user learns the cause.
 
@@ -301,17 +308,30 @@ The order matters. While backing off, a request holds no semaphore slot (retry
 sits outside the semaphore), and a dead API is cut off by the outermost circuit
 before any retry is even attempted.
 
+Streaming uses callStream() instead: for a stream, the promise resolving means
+"tokens start now," not "the call is done." So it holds the semaphore slot until
+the stream is fully consumed — maxConcurrent then bounds generations in flight,
+not just time to first byte — and counts a mid-stream failure (200 headers, then
+an error chunk) as a circuit failure. Retry still covers only opening the stream;
+calling again after tokens have shipped would duplicate text on screen. The
+trade-off: unlike call(), the slot stays held through retry backoff too.
+
 ### Voice fallback
 
 web/src/App.tsx — when server-side speech fails, the browser voice takes over.
 
 ```ts
-const blob = await requestVoice(answer);   // null on failure
+const gen = ++voiceGenRef.current;                  // this request's generation
+const blob = await requestVoice(answer, controller.signal);
+if (gen !== voiceGenRef.current) return;            // stopped, or a new search started
+
 if (blob) {
   new Audio(URL.createObjectURL(blob)).play();      // ElevenLabs mp3
 } else {
   const u = new SpeechSynthesisUtterance(answer);   // browser built-in voice
   u.lang = "ko-KR";
+  u.onend = () => setVoiceState("idle");
+  u.onerror = () => setVoiceState("idle");          // else the button sticks on "stop"
   speechSynthesis.speak(u);
 }
 ```
@@ -326,7 +346,7 @@ if (blob) {
 - LLM: Gemini `gemini-3.6-flash` (default) or OpenAI — runs on free tiers
 - Voice input: Web Speech API (built into the browser)
 - Voice output: ElevenLabs TTS + speechSynthesis fallback
-- Resilience: hand-rolled Rate Limiter / Circuit Breaker / Bulkhead / cache (26 unit tests, node:test)
+- Resilience: hand-rolled Rate Limiter / Circuit Breaker / Bulkhead / cache (35 unit tests, node:test)
 - Logging & observability: pino structured logs + in-memory metrics (p50/p95/p99) + live dashboard
 - Load testing: custom SSE script + k6
 
