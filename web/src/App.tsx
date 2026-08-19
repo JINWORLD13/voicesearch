@@ -54,6 +54,10 @@ export default function App() {
     setError(null);
 
     try {
+      // done/error 없이 스트림이 끝나는 경우(서버 재시작, 프록시 타임아웃 등)를
+      // 구분하기 위한 플래그. 없으면 phase가 "answering"에 영영 갇혀 검색 버튼이
+      // 비활성인 채로 굳는다 — 새로고침 말고는 복구 방법이 없다.
+      let settled = false;
       await streamSearch(question, (event) => {
         switch (event.type) {
           case "sources":
@@ -69,13 +73,19 @@ export default function App() {
           case "done":
             setElapsedMs(event.elapsedMs);
             setPhase("done");
+            settled = true;
             break;
           case "error":
             setError(event.message);
             setPhase("idle");
+            settled = true;
             break;
         }
       });
+      if (!settled) {
+        setError("연결이 중간에 끊겼어요. 다시 시도해주세요.");
+        setPhase("idle");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "요청에 실패했습니다.");
       setPhase("idle");

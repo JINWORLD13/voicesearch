@@ -279,7 +279,7 @@ export function streamAnswer(question, sources) {
 }
 ```
 
-### The protection wrapper: four layers in one call()
+### The protection wrapper: four layers in one wrapped call
 
 server/src/resilience/guard.ts — every external API call (gemini, exa,
 elevenlabs) goes through one of two wrappers. One-shot calls use call(), which
