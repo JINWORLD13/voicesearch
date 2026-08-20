@@ -1,10 +1,10 @@
-[한국어](README.md) | [日本語](README.ja.md) | **English**
+[한국어](README.md) | [日本語](README.ja.md) | English
 
 # VoiceSearch
 
-**Live demo**: https://voicesearch-cwh9.onrender.com (free Render tier — the first request may be slow)
+Live demo: https://voicesearch-cwh9.onrender.com (free Render tier — the first request may be slow)
 
-**GitHub**: https://github.com/JINWORLD13/voicesearch · **Timeline**: 2026.06 ~ 2026.07 · **Team size**: solo (design · development · load testing · documentation)
+GitHub: https://github.com/JINWORLD13/voicesearch · Timeline: 2026.06 ~ 2026.07 · Team size: solo (design · development · load testing · documentation)
 
 Ask a question out loud and VoiceSearch searches the web, answers with sources,
 and reads the answer back to you. Built with React, Express (TypeScript), and the
@@ -138,31 +138,31 @@ be meaningless anyway), so the external LLM is isolated behind a "slow,
 occasionally failing" mock. That leaves the server layer as the only variable,
 so resilience is measured on its own.
 
-**Answer cache (load with repeated questions mixed in)**
+Answer cache (load with repeated questions mixed in)
 
 |  | Cache ON | Cache OFF |
 | --- | --- | --- |
-| p50 latency | **1ms** | 3905ms |
-| Throughput | **32.4 req/s** | 12.1 req/s |
+| p50 latency | 1ms | 3905ms |
+| Throughput | 32.4 req/s | 12.1 req/s |
 
-**Circuit breaker (50% failure injection)**
+Circuit breaker (50% failure injection)
 
 |  | Circuit ON | Circuit OFF |
 | --- | --- | --- |
-| Wall-clock time | **8.9s** | 16.5s |
-| p50 latency | **649ms** | 3924ms |
+| Wall-clock time | 8.9s | 16.5s |
+| p50 latency | 649ms | 3924ms |
 | Fast failures (circuit_open) | 97 | 0 |
 
 The success rate itself is actually lower with the circuit on (30% vs 46%), and
 that is the intended trade-off: it is better to learn about the failure in 0.6s
 and retry than to hang for 8s and fail anyway.
 
-**Rate Limiter** — with capacity 5 and refill 2/s, firing 12 requests in a row
+Rate Limiter — with capacity 5 and refill 2/s, firing 12 requests in a row
 from one IP lets the first 7 through (the burst plus what refilled meanwhile)
 and rejects the rest with 429. At the same moment every request from a different
 IP passes, confirming that per-user isolation works.
 
-**Observability** — pino structured JSON logs and in-memory metrics
+Observability — pino structured JSON logs and in-memory metrics
 (p50 / p95 / p99) are aggregated by the server itself and cross-checked against
 the client-side measurements. I look at percentiles rather than averages because
 an average hides the slowest 5%, and what users actually feel is decided at p95.

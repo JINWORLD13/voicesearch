@@ -1,4 +1,4 @@
-[한국어](PORTFOLIO.md) | [日本語](PORTFOLIO.ja.md) | **English**
+[한국어](PORTFOLIO.md) | [日本語](PORTFOLIO.ja.md) | English
 
 # VoiceSearch
 

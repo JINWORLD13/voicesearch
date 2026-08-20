@@ -1,4 +1,4 @@
-[한국어](RESILIENCE.md) | [日本語](RESILIENCE.ja.md) | **English**
+[한국어](RESILIENCE.md) | [日本語](RESILIENCE.ja.md) | English
 
 # Resilience Design
 

@@ -1,4 +1,4 @@
-**한국어** | [日本語](RESILIENCE.ja.md) | [English](RESILIENCE.en.md)
+한국어 | [日本語](RESILIENCE.ja.md) | [English](RESILIENCE.en.md)
 
 # 회복탄력성 설계 (Resilience)
 
