@@ -9,6 +9,7 @@
 
 import http from "k6/http";
 import { check } from "k6";
+import { Counter } from "k6/metrics";
 
 export const options = {
   scenarios: {
@@ -26,8 +27,11 @@ export const options = {
   },
 };
 
-let rateLimited = 0;
-let served = 0;
+// k6는 VU마다 격리된 JS 런타임을 쓰고 handleSummary는 또 다른 컨텍스트에서 돌아서,
+// 모듈 전역 let 카운터는 집계되지 않는다(요약에서 항상 0). VU 간 집계는 커스텀
+// 메트릭(Counter)으로만 가능하다 — handleSummary가 data.metrics로 합산값을 받는다.
+const rateLimited = new Counter("rate_limited");
+const served = new Counter("served");
 
 export default function () {
   const res = http.post(
@@ -38,16 +42,18 @@ export default function () {
       responseCallback: http.expectedStatuses(200, 429),
     }
   );
-  if (res.status === 429) rateLimited++;
-  else if (res.status === 200) served++;
+  if (res.status === 429) rateLimited.add(1);
+  else if (res.status === 200) served.add(1);
   check(res, { "5xx 아님(서버는 멀쩡)": (r) => r.status < 500 });
 }
 
 export function handleSummary(data) {
   // 콘솔에 429/200 비율을 요약해 "얼마나 막았는지" 보이게 한다
-  const total = rateLimited + served;
+  const blocked = data.metrics.rate_limited?.values.count ?? 0;
+  const ok = data.metrics.served?.values.count ?? 0;
+  const total = blocked + ok;
   const line = total
-    ? `\n한 사용자 폭주 결과: 통과 ${served} · 429 차단 ${rateLimited} (차단율 ${Math.round((rateLimited / total) * 100)}%)\n`
+    ? `\n한 사용자 폭주 결과: 통과 ${ok} · 429 차단 ${blocked} (차단율 ${Math.round((blocked / total) * 100)}%)\n`
     : "\n(요청 없음)\n";
   return { stdout: line + JSON.stringify(data.metrics.http_req_duration.values, null, 2) };
 }
