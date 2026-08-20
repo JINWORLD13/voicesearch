@@ -116,7 +116,7 @@ never retried at all.
 
 ```
 call()        circuit → retry → semaphore → timeout   (outermost to innermost)
-callStream()  circuit → semaphore → retry → timeout
+callStream()  circuit → semaphore → retry → timeout   (slot held until the stream ends)
 ```
 
 Streaming swaps the middle two on purpose. A `call()` is finished when its
@@ -125,7 +125,10 @@ the slot there would bound nothing but time-to-first-byte, and a failure
 arriving mid-body would be recorded as a success. So `callStream()` holds the
 slot and the circuit verdict until the last token; retry still wraps only the
 opening, because re-calling after tokens have shipped would duplicate the answer
-on screen.
+on screen. In exchange, the slot stays held even while a retry backs off — the
+5–7s generation that follows is what the slot is really for, so releasing and
+re-acquiring it gains nothing, and another call slipping in during that gap
+would push past the cap.
 
 ### Measured load-test results
 
